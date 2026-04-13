@@ -1,0 +1,169 @@
+
+Generation 0
+Evaluating Individual 1/10...
+success: 0
+Validation Accuracy: 0.8552
+Evaluating Individual 2/10...
+success: 0
+Validation Accuracy: 0.8707
+Evaluating Individual 3/10...
+success: 0
+Validation Accuracy: 0.6211
+Evaluating Individual 4/10...
+success: 0
+Validation Accuracy: 0.8733
+Evaluating Individual 5/10...
+success: 0
+Validation Accuracy: 0.8428
+Evaluating Individual 6/10...
+success: 0
+Validation Accuracy: 0.8395
+Evaluating Individual 7/10...
+success: 0
+Validation Accuracy: 0.7755
+Evaluating Individual 8/10...
+success: 0
+Validation Accuracy: 0.8721
+Evaluating Individual 9/10...
+success: 0
+Validation Accuracy: 0.8335
+Evaluating Individual 10/10...
+success: 0
+Validation Accuracy: 0.8342
+Best Gen Accuracy: 0.8733 | Avg Gen Accuracy: 0.8218
+
+Generation 1
+Evaluating Individual 1/10...
+success: 0
+Validation Accuracy: 0.8511
+Evaluating Individual 2/10...
+success: 0
+Validation Accuracy: 0.8435
+Evaluating Individual 3/10...
+success: 0
+Validation Accuracy: 0.8728
+Evaluating Individual 4/10...
+success: 0
+Validation Accuracy: 0.8708
+Evaluating Individual 5/10...
+success: 0
+Validation Accuracy: 0.8504
+Evaluating Individual 6/10...
+success: 0
+Validation Accuracy: 0.8678
+Evaluating Individual 7/10...
+success: 0
+Validation Accuracy: 0.8608
+Evaluating Individual 8/10...
+success: 0
+Validation Accuracy: 0.8304
+Evaluating Individual 9/10...
+success: 0
+Validation Accuracy: 0.8487
+Evaluating Individual 10/10...
+success: 0
+Validation Accuracy: 0.8598
+Best Gen Accuracy: 0.8728 | Avg Gen Accuracy: 0.8556
+
+Generation 2
+Evaluating Individual 1/10...
+success: 0
+Validation Accuracy: 0.8637
+Evaluating Individual 2/10...
+success: 0
+Validation Accuracy: 0.8511
+Evaluating Individual 3/10...
+success: 0
+Validation Accuracy: 0.8476
+Evaluating Individual 4/10...
+success: 0
+Validation Accuracy: 0.8430
+Evaluating Individual 5/10...
+success: 0
+Validation Accuracy: 0.8712
+Evaluating Individual 6/10...
+success: 0
+Validation Accuracy: 0.8719
+Evaluating Individual 7/10...
+success: 0
+Validation Accuracy: 0.8622
+Evaluating Individual 8/10...
+success: 0
+Validation Accuracy: 0.8511
+Evaluating Individual 9/10...
+success: 0
+Validation Accuracy: 0.7316
+Evaluating Individual 10/10...
+success: 0
+Validation Accuracy: 0.8533
+Best Gen Accuracy: 0.8719 | Avg Gen Accuracy: 0.8447
+
+Generation 3
+Evaluating Individual 1/10...
+success: 0
+Validation Accuracy: 0.8663
+Evaluating Individual 2/10...
+success: 0
+Validation Accuracy: 0.8680
+Evaluating Individual 3/10...
+success: 0
+Validation Accuracy: 0.8480
+Evaluating Individual 4/10...
+success: 0
+Validation Accuracy: 0.8473
+Evaluating Individual 5/10...
+success: 0
+Validation Accuracy: 0.8644
+Evaluating Individual 6/10...
+success: 0
+Validation Accuracy: 0.8435
+Evaluating Individual 7/10...
+success: 0
+Validation Accuracy: 0.8654
+Evaluating Individual 8/10...
+success: 0
+Validation Accuracy: 0.8550
+Evaluating Individual 9/10...
+success: 0
+Validation Accuracy: 0.8559
+Evaluating Individual 10/10...
+success: 0
+Validation Accuracy: 0.8501
+Best Gen Accuracy: 0.8680 | Avg Gen Accuracy: 0.8564
+
+Generation 4
+Evaluating Individual 1/10...
+success: 0
+Validation Accuracy: 0.8688
+Evaluating Individual 2/10...
+success: 0
+Validation Accuracy: 0.8724
+Evaluating Individual 3/10...
+success: 0
+Validation Accuracy: 0.8707
+Evaluating Individual 4/10...
+success: 0
+Validation Accuracy: 0.8666
+Evaluating Individual 5/10...
+success: 0
+Validation Accuracy: 0.8655
+Evaluating Individual 6/10...
+success: 0
+Validation Accuracy: 0.8644
+Evaluating Individual 7/10...
+success: 0
+Validation Accuracy: 0.8632
+Evaluating Individual 8/10...
+success: 0
+Validation Accuracy: 0.8657
+Evaluating Individual 9/10...
+success: 0
+Validation Accuracy: 0.8608
+Evaluating Individual 10/10...
+success: 0
+Validation Accuracy: 0.8624
+Best Gen Accuracy: 0.8724 | Avg Gen Accuracy: 0.8660
+
+=== Optimization Complete ===
+Best Accuracy: 0.8733
+Best Hyperparameters: Neurons=82, LR=0.000775, Batch=32, Act=0
