@@ -3,17 +3,33 @@
 #include <string.h>
 #include <time.h>
 #include <math.h>
+#include <omp.h>
 
 #include <subprocess.h>
+
+#define max(a,b) \
+  ({ __typeof__ (a) _a = (a); \
+     __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
 
 // Define the structure of an Individual
 typedef struct
 {
+    int layers;
     int neurons;
     double learning_rate;
     int batch_size;
     int activation;
 } Individual;
+
+typedef struct
+{
+    Individual * individual;
+    double accuracy;
+} IndividualAccuracy;
+
+#pragma omp declare reduction(pick_best : IndividualAccuracy : \
+    (omp_out = omp_in.accuracy > omp_out.accuracy ? omp_in : omp_out)) initializer(omp_priv =  {.accuracy = -INFINITY})
 
 // Utility function for random uniform double between min and max
 double random_uniform(double min, double max)
@@ -33,7 +49,8 @@ void generate_population(Individual *population, int size)
     int batch_choices[] = {32, 64, 128};
     for (int i = 0; i < size; i++)
     {
-        population[i].neurons = random_randint(32, 256);
+        population[i].layers = random_randint(1, 3);
+        population[i].neurons = random_randint(8, 256 / population[i].layers);
         population[i].learning_rate = pow(10, random_uniform(-4.0, -1.0));
         population[i].batch_size = batch_choices[random_randint(0, 2)];
         population[i].activation = random_randint(0, 2);
@@ -47,26 +64,48 @@ void ensure_zero(int result, const char *operation) {
     }
 }
 
+char* dump_stdout(FILE* p_stdout) {
+    
+    fseek(p_stdout, 0, SEEK_END); 
+    long fileSize = ftell(p_stdout);
+    
+    char* buff;
+    buff = malloc(fileSize * sizeof(char) + 1);
+
+    buff[fileSize] = '\0';
+
+    return buff;
+}
+
 // Subprocess call to the Python agent
 double evaluate_fitness(Individual ind)
 {
-    char neurons[10], learning_rate[30], batch_size[10], activation[10];
+    char layers[2], neurons[4], learning_rate[30], batch_size[4], activation[2];
 
+    sprintf((char * restrict) &layers, "%d", ind.layers);
     sprintf((char * restrict) &neurons, "%d", ind.neurons);
     sprintf((char * restrict) &learning_rate, "%.17lg", ind.learning_rate);
     sprintf((char * restrict) &batch_size, "%d", ind.batch_size);
     sprintf((char * restrict) &activation, "%d", ind.activation);
 
-    const char *command_line[] = {"python3", "agent.py", (const char *) &neurons, (const char *) &learning_rate, (const char *) &batch_size, (const char *) &activation, NULL};
+    const char *command_line[] = {"python3", "agent.py", (const char *) &layers, (const char *) &neurons, (const char *) &learning_rate, (const char *) &batch_size, (const char *) &activation, NULL};
     struct subprocess_s subprocess;
     ensure_zero(subprocess_create(command_line, subprocess_option_inherit_environment | subprocess_option_search_user_path, &subprocess), "create");
 
     int process_return;
     int result = subprocess_join(&subprocess, &process_return);
-    ensure_zero(result, "subprocess join");
-    ensure_zero(result, "join");
 
-    printf("success: %d\n", result);
+    // FILE* p_stderr = subprocess_stderr(&subprocess);
+    // char *err = dump_stdout(p_stderr);
+    // fprintf(stderr, "subprocess err: \"%s\"\n", err);
+    // free(err);
+    // p_stderr = subprocess_stdout(&subprocess);
+    // err = dump_stdout(p_stderr);
+    // fprintf(stderr, "subprocess out: \"%s\"\n", err);
+    // free(err);
+
+    ensure_zero(process_return, "subprocess");
+    ensure_zero(result, "join");
 
     FILE* p_stdout = subprocess_stdout(&subprocess);
 
@@ -74,7 +113,9 @@ double evaluate_fitness(Individual ind)
 
     char string[100]; // Buffer to store the extracted string
     if (fgets(string, 100, p_stdout) == NULL) {
-        fprintf(stderr, "Failed to read from stdout: \"%s\"\n", string);
+        char *err = dump_stdout(p_stdout);
+        fprintf(stderr, "Failed to read from stdout: \"%s\"\n", err);
+        free(err);
         exit(EXIT_FAILURE);
     }
 
@@ -104,7 +145,6 @@ void select_random_distinct(int *arr, int n, int k) {
         printf("%d ", arr[i]);
     }
 }
-
 
 // Step 3: Selection (Tournament selection of size 2)
 void selection(Individual *population, double *fitness_scores, int pop_size, Individual *parents, int num_parents)
@@ -148,14 +188,13 @@ void crossover(Individual *parents, int num_parents, Individual *offspring, int 
         Individual p2 = parents[p2_idx];
         Individual child;
 
-        // Random crossover point between 1 and 3 (inclusive)
-        int cp = random_randint(1, 3);
+        int cp = random_randint(0, 5);
 
-        // Mimicking Python slicing behavior: parent1[:cp] + parent2[cp:]
-        child.neurons = (cp > 0) ? p1.neurons : p2.neurons;
-        child.learning_rate = (cp > 1) ? p1.learning_rate : p2.learning_rate;
-        child.batch_size = (cp > 2) ? p1.batch_size : p2.batch_size;
-        child.activation = (cp > 3) ? p1.activation : p2.activation;
+        child.layers        = (cp > 0) ? p1.layers : p2.layers;
+        child.neurons       = (cp > 1) ? p1.neurons : p2.neurons;
+        child.learning_rate = (cp > 2) ? p1.learning_rate : p2.learning_rate;
+        child.batch_size    = (cp > 3) ? p1.batch_size : p2.batch_size;
+        child.activation    = (cp > 4) ? p1.activation : p2.activation;
 
         offspring[i] = child;
     }
@@ -169,20 +208,25 @@ void mutation(Individual *offspring, int offspring_size)
     {
         if ((double)rand() / RAND_MAX < 0.1)
         { // 10% mutation chance
-            int mutation_index = random_randint(0, 3);
+            int mutation_index = random_randint(0, 4);
             if (mutation_index == 0)
             {
-                offspring[i].neurons = random_randint(32, 256);
+                offspring[i].layers = random_randint(1, 3);
+                offspring[i].neurons = max(offspring[i].neurons, 256 / offspring[i].layers);
             }
             else if (mutation_index == 1)
             {
-                offspring[i].learning_rate = pow(10, random_uniform(-4.0, -1.0));
+                offspring[i].neurons = random_randint(8, 256 / offspring[i].layers);
             }
             else if (mutation_index == 2)
             {
-                offspring[i].batch_size = batch_choices[random_randint(0, 2)];
+                offspring[i].learning_rate = pow(10, random_uniform(-4.0, -1.0));
             }
             else if (mutation_index == 3)
+            {
+                offspring[i].batch_size = batch_choices[random_randint(0, 2)];
+            }
+            else if (mutation_index == 4)
             {
                 offspring[i].activation = random_randint(0, 2);
             }
@@ -196,8 +240,8 @@ int main()
     // Initialize random seed
     srand((unsigned int)time(NULL));
 
-    int num_generations = 5;
-    int population_size = 10;
+    int num_generations = 10;
+    int population_size = 16;
     int num_parents = 5;
     int offspring_size = population_size - num_parents;
 
@@ -208,10 +252,11 @@ int main()
     Individual *next_population = malloc(population_size * sizeof(Individual));
     double *fitness_scores = malloc(population_size * sizeof(double));
 
-    Individual best_individual;
-    double best_accuracy = -1.0;
+    IndividualAccuracy best_individual_accuracy; 
 
     generate_population(population, population_size);
+    
+    // omp_set_num_threads(10);
 
     for (int generation = 0; generation < num_generations; generation++)
     {
@@ -221,28 +266,30 @@ int main()
         double sum_fitness = 0.0;
 
         // Evaluate fitness
+        #pragma omp parallel for reduction(+:sum_fitness) reduction(max:max_fitness) reduction(pick_best:best_individual_accuracy)
         for (int i = 0; i < population_size; i++)
         {
             printf("Evaluating Individual %d/%d...\n", i + 1, population_size);
+            
+            IndividualAccuracy individual_accuracy = {&population[i], evaluate_fitness(population[i])};
 
-            double accuracy = evaluate_fitness(population[i]);
-            fitness_scores[i] = accuracy;
+            fitness_scores[i] = individual_accuracy.accuracy;
 
-            printf("Validation Accuracy: %.17g\n", accuracy);
+            printf("Validation Accuracy: %.17g\n", individual_accuracy.accuracy);
 
-            sum_fitness += accuracy;
-            if (accuracy > max_fitness)
-                max_fitness = accuracy;
+            sum_fitness += individual_accuracy.accuracy;
 
-            if (accuracy > best_accuracy)
+            if (individual_accuracy.accuracy > max_fitness)
+                max_fitness = individual_accuracy.accuracy;
+
+            if (individual_accuracy.accuracy > best_individual_accuracy.accuracy)
             {
-                best_accuracy = accuracy;
-                best_individual = population[i];
+                best_individual_accuracy.accuracy = individual_accuracy.accuracy;
+                best_individual_accuracy.individual = individual_accuracy.individual;
             }
         }
 
-        printf("Best Gen Accuracy: %.17g | Avg Gen Accuracy: %.17g\n",
-               max_fitness, sum_fitness / population_size);
+        printf("Best Gen Accuracy: %.17g | Avg Gen Accuracy: %.17g\n", max_fitness, sum_fitness / population_size);
 
         // Selection, Crossover, Mutation
         selection(population, fitness_scores, population_size, parents, num_parents);
@@ -266,10 +313,13 @@ int main()
     }
 
     printf("\n=== Optimization Complete ===\n");
-    printf("Best Accuracy: %.4f\n", best_accuracy);
-    printf("Best Hyperparameters: Neurons=%d, LR=%lf, Batch=%d, Act=%d\n",
-           best_individual.neurons, best_individual.learning_rate,
-           best_individual.batch_size, best_individual.activation);
+    printf("Best Accuracy: %lg\n", best_individual_accuracy.accuracy);
+    printf("Best Hyperparameters: Layers=%d, Neurons=%d, LR=%lf, Batch=%d, Act=%d\n",
+           best_individual_accuracy.individual->layers,
+           best_individual_accuracy.individual->neurons,
+           best_individual_accuracy.individual->learning_rate,
+           best_individual_accuracy.individual->batch_size,
+           best_individual_accuracy.individual->activation);
 
     // Free memory
     free(population);
