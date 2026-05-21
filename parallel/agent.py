@@ -27,7 +27,6 @@ class Agent():
         (self.X_train, self.y_train), (self.X_test, self.y_test) = (X_train, y_train), (X_test, y_test)
     
 
-    # step 1 - fitness function
     def fitness_function(self, individual):
         # decode individuals
         layers = int(individual[0])
@@ -104,5 +103,4 @@ if __name__ == "__main__":
             agent = Agent()
             accuracy = agent.fitness_function(individual)
     
-    # Print exclusively the float value so C's `fscanf` can read it cleanly
     print(f"{accuracy}")

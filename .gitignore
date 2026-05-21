@@ -1,2 +1,4 @@
 tf
 .venv
+**/a.out
+**/ga

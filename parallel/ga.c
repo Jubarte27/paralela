@@ -12,7 +12,6 @@
      __typeof__ (b) _b = (b); \
      _a > _b ? _a : _b; })
 
-// Define the structure of an Individual
 typedef struct
 {
     int layers;
@@ -43,7 +42,6 @@ int random_randint(int min, int max)
     return min + rand() % (max - min + 1);
 }
 
-// Step 2: Generate population
 void generate_population(Individual *population, int size)
 {
     int batch_choices[] = {32, 64, 128};
@@ -58,7 +56,7 @@ void generate_population(Individual *population, int size)
 }
 
 void ensure_zero(int result, const char *operation) {
-    if (result != 0) { // an error occurred!
+    if (result != 0) { // an error occurred
         fprintf(stderr, "Error on %s: %d\n", operation, result);
         exit(EXIT_FAILURE);
     }
@@ -171,7 +169,6 @@ void selection(Individual *population, double *fitness_scores, int pop_size, Ind
     }
 }
 
-// Step 4: Crossover
 void crossover(Individual *parents, int num_parents, Individual *offspring, int offspring_size)
 {
     for (int i = 0; i < offspring_size; i++)
@@ -200,7 +197,6 @@ void crossover(Individual *parents, int num_parents, Individual *offspring, int 
     }
 }
 
-// Step 5: Mutation
 void mutation(Individual *offspring, int offspring_size)
 {
     int batch_choices[] = {32, 64, 128};
@@ -234,7 +230,6 @@ void mutation(Individual *offspring, int offspring_size)
     }
 }
 
-// Step 6: GA Optimization
 int main()
 {
     // Initialize random seed
@@ -291,7 +286,6 @@ int main()
 
         printf("Best Gen Accuracy: %.17g | Avg Gen Accuracy: %.17g\n", max_fitness, sum_fitness / population_size);
 
-        // Selection, Crossover, Mutation
         selection(population, fitness_scores, population_size, parents, num_parents);
         crossover(parents, num_parents, offspring, offspring_size);
         mutation(offspring, offspring_size);
@@ -306,7 +300,7 @@ int main()
             next_population[num_parents + i] = offspring[i];
         }
 
-        // Swap pointers for the next generation
+        // Prepare for the next generation
         Individual *temp = population;
         population = next_population;
         next_population = temp;
@@ -321,7 +315,6 @@ int main()
            best_individual_accuracy.individual->batch_size,
            best_individual_accuracy.individual->activation);
 
-    // Free memory
     free(population);
     free(parents);
     free(offspring);
