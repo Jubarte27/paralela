@@ -7,8 +7,8 @@
 
 #include <subprocess.h>
 
-#define max(a,b) \
-  ({ __typeof__ (a) _a = (a); \
+#define max(a, b) \
+    ({ __typeof__ (a) _a = (a); \
      __typeof__ (b) _b = (b); \
      _a > _b ? _a : _b; })
 
@@ -23,12 +23,11 @@ typedef struct
 
 typedef struct
 {
-    Individual * individual;
+    Individual *individual;
     double accuracy;
 } IndividualAccuracy;
 
-#pragma omp declare reduction(pick_best : IndividualAccuracy : \
-    (omp_out = omp_in.accuracy > omp_out.accuracy ? omp_in : omp_out)) initializer(omp_priv =  {.accuracy = -INFINITY})
+#pragma omp declare reduction(pick_best:IndividualAccuracy : (omp_out = omp_in.accuracy > omp_out.accuracy ? omp_in : omp_out)) initializer(omp_priv = {.accuracy = -INFINITY})
 
 // Utility function for random uniform double between min and max
 double random_uniform(double min, double max)
@@ -55,21 +54,22 @@ void generate_population(Individual *population, int size)
     }
 }
 
-void ensure_zero(int result, const char *operation) {
-    if (result != 0) { // an error occurred
+void ensure_zero(int result, const char *operation)
+{
+    if (result != 0)
+    { // an error occurred
         fprintf(stderr, "Error on %s: %d\n", operation, result);
         exit(EXIT_FAILURE);
     }
 }
 
-char* dump_stdout(FILE* p_stdout) {
-    
-    fseek(p_stdout, 0, SEEK_END); 
+char *dump_stdout(FILE *p_stdout)
+{
+    fseek(p_stdout, 0, SEEK_END);
     long fileSize = ftell(p_stdout);
-    
-    char* buff;
-    buff = malloc(fileSize * sizeof(char) + 1);
 
+    char *buff;
+    buff = malloc(fileSize * sizeof(char) + 1);
     buff[fileSize] = '\0';
 
     return buff;
@@ -80,13 +80,13 @@ double evaluate_fitness(Individual ind)
 {
     char layers[2], neurons[4], learning_rate[30], batch_size[4], activation[2];
 
-    sprintf((char * restrict) &layers, "%d", ind.layers);
-    sprintf((char * restrict) &neurons, "%d", ind.neurons);
-    sprintf((char * restrict) &learning_rate, "%.17lg", ind.learning_rate);
-    sprintf((char * restrict) &batch_size, "%d", ind.batch_size);
-    sprintf((char * restrict) &activation, "%d", ind.activation);
+    sprintf((char *restrict)&layers, "%d", ind.layers);
+    sprintf((char *restrict)&neurons, "%d", ind.neurons);
+    sprintf((char *restrict)&learning_rate, "%.17lg", ind.learning_rate);
+    sprintf((char *restrict)&batch_size, "%d", ind.batch_size);
+    sprintf((char *restrict)&activation, "%d", ind.activation);
 
-    const char *command_line[] = {"python3", "agent.py", (const char *) &layers, (const char *) &neurons, (const char *) &learning_rate, (const char *) &batch_size, (const char *) &activation, NULL};
+    const char *command_line[] = {"python3", "agent.py", (const char *)&layers, (const char *)&neurons, (const char *)&learning_rate, (const char *)&batch_size, (const char *)&activation, NULL};
     struct subprocess_s subprocess;
     ensure_zero(subprocess_create(command_line, subprocess_option_inherit_environment | subprocess_option_search_user_path, &subprocess), "create");
 
@@ -105,35 +105,39 @@ double evaluate_fitness(Individual ind)
     ensure_zero(process_return, "subprocess");
     ensure_zero(result, "join");
 
-    FILE* p_stdout = subprocess_stdout(&subprocess);
+    FILE *p_stdout = subprocess_stdout(&subprocess);
 
     double accuracy = 0.0;
 
     char string[100]; // Buffer to store the extracted string
-    if (fgets(string, 100, p_stdout) == NULL) {
+    if (fgets(string, 100, p_stdout) == NULL)
+    {
         char *err = dump_stdout(p_stdout);
         fprintf(stderr, "Failed to read from stdout: \"%s\"\n", err);
         free(err);
         exit(EXIT_FAILURE);
     }
 
-    if (sscanf(string, "%lg", &accuracy) != 1) {
+    if (sscanf(string, "%lg", &accuracy) != 1)
+    {
         fprintf(stderr, "Failed to read accuracy from agent: \"%s\"\n", string);
         exit(EXIT_FAILURE);
     }
 
     ensure_zero(subprocess_destroy(&subprocess), "destroy");
-    
     return accuracy;
 }
 
-void select_random_distinct(int *arr, int n, int k) {
-    if (k > n) return; // Cannot pick more elements than exist
+void select_random_distinct(int *arr, int n, int k)
+{
+    if (k > n)
+        return; // Cannot pick more elements than exist
 
-    for (int i = 0; i < k; i++) {
+    for (int i = 0; i < k; i++)
+    {
         // Pick a random index from the remaining pool
         int j = i + random_randint(0, n - 1);
-        
+
         // Swap selected element arr[j] with current position arr[i]
         int temp = arr[i];
         arr[i] = arr[j];
@@ -154,18 +158,12 @@ void selection(Individual *population, double *fitness_scores, int pop_size, Ind
 
         // Ensure distinct indices
         while (idx1 == idx2)
-        {
             idx2 = random_randint(0, pop_size - 1);
-        }
 
         if (fitness_scores[idx1] > fitness_scores[idx2])
-        {
             parents[i] = population[idx1];
-        }
         else
-        {
             parents[i] = population[idx2];
-        }
     }
 }
 
@@ -177,9 +175,7 @@ void crossover(Individual *parents, int num_parents, Individual *offspring, int 
         int p2_idx = random_randint(0, num_parents - 1);
 
         while (p1_idx == p2_idx && num_parents > 1)
-        {
             p2_idx = random_randint(0, num_parents - 1);
-        }
 
         Individual p1 = parents[p1_idx];
         Individual p2 = parents[p2_idx];
@@ -187,11 +183,11 @@ void crossover(Individual *parents, int num_parents, Individual *offspring, int 
 
         int cp = random_randint(0, 5);
 
-        child.layers        = (cp > 0) ? p1.layers : p2.layers;
-        child.neurons       = (cp > 1) ? p1.neurons : p2.neurons;
+        child.layers = (cp > 0) ? p1.layers : p2.layers;
+        child.neurons = (cp > 1) ? p1.neurons : p2.neurons;
         child.learning_rate = (cp > 2) ? p1.learning_rate : p2.learning_rate;
-        child.batch_size    = (cp > 3) ? p1.batch_size : p2.batch_size;
-        child.activation    = (cp > 4) ? p1.activation : p2.activation;
+        child.batch_size = (cp > 3) ? p1.batch_size : p2.batch_size;
+        child.activation = (cp > 4) ? p1.activation : p2.activation;
 
         offspring[i] = child;
     }
@@ -211,21 +207,13 @@ void mutation(Individual *offspring, int offspring_size)
                 offspring[i].neurons = max(offspring[i].neurons, 256 / offspring[i].layers);
             }
             else if (mutation_index == 1)
-            {
                 offspring[i].neurons = random_randint(8, 256 / offspring[i].layers);
-            }
             else if (mutation_index == 2)
-            {
                 offspring[i].learning_rate = pow(10, random_uniform(-4.0, -1.0));
-            }
             else if (mutation_index == 3)
-            {
                 offspring[i].batch_size = batch_choices[random_randint(0, 2)];
-            }
             else if (mutation_index == 4)
-            {
                 offspring[i].activation = random_randint(0, 2);
-            }
         }
     }
 }
@@ -235,8 +223,8 @@ int main()
     // Initialize random seed
     srand((unsigned int)time(NULL));
 
-    int num_generations = 10;
-    int population_size = 16;
+    int num_generations = 5;
+    int population_size = max(omp_get_num_procs() - 2, 1);
     int num_parents = 5;
     int offspring_size = population_size - num_parents;
 
@@ -247,10 +235,10 @@ int main()
     Individual *next_population = malloc(population_size * sizeof(Individual));
     double *fitness_scores = malloc(population_size * sizeof(double));
 
-    IndividualAccuracy best_individual_accuracy; 
+    IndividualAccuracy best_individual_accuracy;
 
     generate_population(population, population_size);
-    
+
     // omp_set_num_threads(10);
 
     for (int generation = 0; generation < num_generations; generation++)
@@ -265,7 +253,7 @@ int main()
         for (int i = 0; i < population_size; i++)
         {
             printf("Evaluating Individual %d/%d...\n", i + 1, population_size);
-            
+
             IndividualAccuracy individual_accuracy = {&population[i], evaluate_fitness(population[i])};
 
             fitness_scores[i] = individual_accuracy.accuracy;
@@ -292,13 +280,9 @@ int main()
 
         // Construct next generation
         for (int i = 0; i < num_parents; i++)
-        {
             next_population[i] = parents[i];
-        }
         for (int i = 0; i < offspring_size; i++)
-        {
             next_population[num_parents + i] = offspring[i];
-        }
 
         // Prepare for the next generation
         Individual *temp = population;
