@@ -127,6 +127,12 @@ subprocess_create_ex(const char *const command_line[], int options,
                      const char *const environment[],
                      struct subprocess_s *const out_process);
 
+#if !defined(_WIN32)
+subprocess_weak int subprocess_create_actions(const char *const commandLine[], int options,
+                         const char *const environment[],
+                         struct subprocess_s *const out_process, posix_spawn_file_actions_t actions);
+#endif
+
 /// @brief Get the standard input file for a process.
 /// @param process The process to query.
 /// @return The file for standard input of the process.
@@ -485,10 +491,10 @@ int subprocess_create(const char *const commandLine[], int options,
                               out_process);
 }
 
+#if defined(_WIN32)
 int subprocess_create_ex(const char *const commandLine[], int options,
                          const char *const environment[],
                          struct subprocess_s *const out_process) {
-#if defined(_WIN32)
   int fd;
   void *rd, *wr;
   char *commandLineCombined;
@@ -769,13 +775,23 @@ int subprocess_create_ex(const char *const commandLine[], int options,
 
   return 0;
 #else
+int subprocess_create_ex(const char *const commandLine[], int options,
+                         const char *const environment[],
+                         struct subprocess_s *const out_process) {
+  posix_spawn_file_actions_t actions;
+  return subprocess_create_actions(commandLine, options, environment,
+                              out_process, actions);
+}
+
+int subprocess_create_actions(const char *const commandLine[], int options,
+                         const char *const environment[],
+                         struct subprocess_s *const out_process, posix_spawn_file_actions_t actions) {
   int stdinfd[2];
   int stdoutfd[2];
   int stderrfd[2];
   pid_t child;
   extern char **environ;
   char *const empty_environment[1] = {SUBPROCESS_NULL};
-  posix_spawn_file_actions_t actions;
   char *const *used_environment;
 
   if (subprocess_option_inherit_environment ==

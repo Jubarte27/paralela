@@ -23,7 +23,7 @@ typedef struct
 
 typedef struct
 {
-    Individual *individual;
+    Individual individual;
     double accuracy;
 } IndividualAccuracy;
 
@@ -67,9 +67,12 @@ char *dump_stdout(FILE *p_stdout)
 {
     fseek(p_stdout, 0, SEEK_END);
     long fileSize = ftell(p_stdout);
-
-    char *buff;
+    rewind(p_stdout);
+    
+    char* buff;
     buff = malloc(fileSize * sizeof(char) + 1);
+
+    fread(buff, 1, fileSize, p_stdout);
     buff[fileSize] = '\0';
 
     return buff;
@@ -78,29 +81,20 @@ char *dump_stdout(FILE *p_stdout)
 // Subprocess call to the Python agent
 double evaluate_fitness(Individual ind)
 {
-    char layers[2], neurons[4], learning_rate[30], batch_size[4], activation[2];
+    char layers[16], neurons[16], learning_rate[32], batch_size[16], activation[16];
 
-    sprintf((char *restrict)&layers, "%d", ind.layers);
-    sprintf((char *restrict)&neurons, "%d", ind.neurons);
-    sprintf((char *restrict)&learning_rate, "%.17lg", ind.learning_rate);
-    sprintf((char *restrict)&batch_size, "%d", ind.batch_size);
-    sprintf((char *restrict)&activation, "%d", ind.activation);
+    snprintf(layers, sizeof(layers), "%d", ind.layers);
+    snprintf(neurons, sizeof(neurons), "%d", ind.neurons);
+    snprintf(learning_rate,sizeof(learning_rate), "%.17lg", ind.learning_rate);
+    snprintf(batch_size, sizeof(batch_size), "%d", ind.batch_size);
+    snprintf(activation, sizeof(activation), "%d", ind.activation);
 
-    const char *command_line[] = {"python3", "agent.py", (const char *)&layers, (const char *)&neurons, (const char *)&learning_rate, (const char *)&batch_size, (const char *)&activation, NULL};
+    const char *command_line[] = {"python3", "agent.py", layers, neurons, learning_rate, batch_size, activation, NULL};
     struct subprocess_s subprocess;
     ensure_zero(subprocess_create(command_line, subprocess_option_inherit_environment | subprocess_option_search_user_path, &subprocess), "create");
 
     int process_return;
     int result = subprocess_join(&subprocess, &process_return);
-
-    // FILE* p_stderr = subprocess_stderr(&subprocess);
-    // char *err = dump_stdout(p_stderr);
-    // fprintf(stderr, "subprocess err: \"%s\"\n", err);
-    // free(err);
-    // p_stderr = subprocess_stdout(&subprocess);
-    // err = dump_stdout(p_stderr);
-    // fprintf(stderr, "subprocess out: \"%s\"\n", err);
-    // free(err);
 
     ensure_zero(process_return, "subprocess");
     ensure_zero(result, "join");
@@ -235,11 +229,11 @@ int main()
     Individual *next_population = malloc(population_size * sizeof(Individual));
     double *fitness_scores = malloc(population_size * sizeof(double));
 
-    IndividualAccuracy best_individual_accuracy;
+    IndividualAccuracy best_individual_accuracy = {.accuracy = -INFINITY};
 
     generate_population(population, population_size);
-
-    // omp_set_num_threads(10);
+    
+    omp_set_num_threads(10);
 
     for (int generation = 0; generation < num_generations; generation++)
     {
@@ -253,8 +247,8 @@ int main()
         for (int i = 0; i < population_size; i++)
         {
             printf("Evaluating Individual %d/%d...\n", i + 1, population_size);
-
-            IndividualAccuracy individual_accuracy = {&population[i], evaluate_fitness(population[i])};
+            
+            IndividualAccuracy individual_accuracy = {population[i], evaluate_fitness(population[i])};
 
             fitness_scores[i] = individual_accuracy.accuracy;
 
@@ -293,11 +287,11 @@ int main()
     printf("\n=== Optimization Complete ===\n");
     printf("Best Accuracy: %lg\n", best_individual_accuracy.accuracy);
     printf("Best Hyperparameters: Layers=%d, Neurons=%d, LR=%lf, Batch=%d, Act=%d\n",
-           best_individual_accuracy.individual->layers,
-           best_individual_accuracy.individual->neurons,
-           best_individual_accuracy.individual->learning_rate,
-           best_individual_accuracy.individual->batch_size,
-           best_individual_accuracy.individual->activation);
+           best_individual_accuracy.individual.layers,
+           best_individual_accuracy.individual.neurons,
+           best_individual_accuracy.individual.learning_rate,
+           best_individual_accuracy.individual.batch_size,
+           best_individual_accuracy.individual.activation);
 
     free(population);
     free(parents);
