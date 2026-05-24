@@ -100,7 +100,7 @@ class Agent():
             # train the model for 5 epochs - hopefully won't take long
             history = model.fit(
                 self.X_train, self.y_train,
-                epochs=1,
+                epochs=5,
                 batch_size=batch_size,
                 validation_data=(self.X_test, self.y_test),
                 verbose=0,
