@@ -127,11 +127,6 @@ subprocess_create_ex(const char *const command_line[], int options,
                      const char *const environment[],
                      struct subprocess_s *const out_process);
 
-#if !defined(_WIN32)
-subprocess_weak int subprocess_create_actions(const char *const commandLine[], int options,
-                         const char *const environment[],
-                         struct subprocess_s *const out_process, posix_spawn_file_actions_t actions);
-#endif
 
 /// @brief Get the standard input file for a process.
 /// @param process The process to query.
@@ -238,6 +233,9 @@ subprocess_weak int subprocess_alive(struct subprocess_s *const process);
 #if !defined(_WIN32)
 #include <signal.h>
 #include <spawn.h>
+subprocess_weak int subprocess_create_actions(const char *const commandLine[], int options,
+                         const char *const environment[],
+                         struct subprocess_s *const out_process, posix_spawn_file_actions_t actions);
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/wait.h>

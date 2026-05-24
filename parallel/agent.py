@@ -3,6 +3,7 @@ import os
 import random
 from contextlib import redirect_stdout
 import sys
+from inputimeout import TimeoutOccurred, inputimeout
 
 import tensorflow as tf
 
@@ -99,7 +100,7 @@ class Agent():
             # train the model for 5 epochs - hopefully won't take long
             history = model.fit(
                 self.X_train, self.y_train,
-                epochs=5,
+                epochs=1,
                 batch_size=batch_size,
                 validation_data=(self.X_test, self.y_test),
                 verbose=0,
@@ -113,32 +114,47 @@ class Agent():
         val_accuracy = max(history.history['val_accuracy'])
         return val_accuracy
 
-def main():
+def signal_and_read(fifo, write_on_err=None):
+    fifo.write("listening")
+    fifo.flush()
+    try:
+        return inputimeout(timeout=5)
+    except TimeoutOccurred:
+        if write_on_err is not None:
+            with open(write_on_err, 'a') as err_file:
+                err_file.write("Timeout occurred while waiting for input.\n")
+        raise TimeoutOccurred("Timeout occurred while waiting for input.")
+
+def main(fifo_path: str):
     agent = Agent()
+
+    fifo_dir = os.path.basename(os.path.dirname(os.path.realpath(fifo_path)))
     
     with open(os.devnull, 'w') as out_null:
-        while (line := input()) != "exit":
-            args = line.split(" ")
-            layers = int(args[0])
-            neurons = int(args[1])
-            learning_rate = float(args[2])
-            batch_size = int(args[3])
-            activation = int(args[4])
-            
-            individual = [layers, neurons, learning_rate, batch_size, activation]
+        with open(fifo_path, 'w') as fifo:
+            while (line := signal_and_read(fifo, write_on_err=f"{fifo_dir}-err.log")) != "exit":
+                args = line.split(" ")
+                layers = int(args[0])
+                neurons = int(args[1])
+                learning_rate = float(args[2])
+                batch_size = int(args[3])
+                activation = int(args[4])
+                
+                individual = [layers, neurons, learning_rate, batch_size, activation]
 
-            with redirect_stdout(out_null):
-                accuracy = agent.fitness_function(individual)
-            
-            print(f"{accuracy}")
+                with redirect_stdout(out_null):
+                    accuracy = agent.fitness_function(individual)
+                print(f"{accuracy}")
 
 if __name__ == "__main__":
     tf.config.threading.set_inter_op_parallelism_threads(1)
     tf.config.threading.set_intra_op_parallelism_threads(1)
 
+    fifo_path = sys.argv[1]
+
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["TF_NUM_INTEROP_THREADS"] = "1"
     os.environ["TF_NUM_INTRAOP_THREADS"] = "1"
 
-    main()
+    main(fifo_path)
 

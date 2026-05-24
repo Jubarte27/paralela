@@ -3,9 +3,13 @@ HERE=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 
 PARALLEL="$HERE/parallel"
 SEQUENTIAL="$HERE/sequential"
+VENV="$HERE/.venv"
 
 TARGET=$PARALLEL
 
-gcc -fopenmp "$TARGET/ga.c" -I"$TARGET" -lm -o "$TARGET/ga"
+if ! gcc -fopenmp "$TARGET/ga.c" -I"$TARGET" -lm -o "$TARGET/ga"; then
+    echo "Failed to compile ga.c"
+    exit 1
+fi
 
-cd "$TARGET" && ./ga
+source "$VENV/bin/activate" && cd "$TARGET" && ./ga
