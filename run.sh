@@ -7,7 +7,7 @@ VENV="$HERE/.venv"
 
 TARGET=$PARALLEL
 
-if ! gcc -fopenmp "$TARGET/ga.c" -I"$TARGET" -lm -o "$TARGET/ga"; then
+if ! gcc -O1 -fopenmp "$TARGET/ga.c" -I"$TARGET" -lm -o "$TARGET/ga"; then
     echo "Failed to compile ga.c"
     exit 1
 fi
