@@ -2,3 +2,4 @@ tf
 .venv
 **/a.out
 **/ga
+.git-backup/

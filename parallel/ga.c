@@ -9,6 +9,10 @@
 #include <sys/stat.h>
 #include <time.h>
 
+#define MINUTES_TO_SECONDS 60
+#define SECONDS_TO_MILLISECONDS 1000
+#define TIMEOUT_MS (1 * MINUTES_TO_SECONDS * SECONDS_TO_MILLISECONDS)
+
 typedef enum {
   UNKNOWN = -1,
   SUCCESS = 0,
@@ -30,8 +34,8 @@ kill_me_on_exit_t kill_me_on_exit = {
     .process = NULL, .fd = -1, .fifo_path = "", .temp_dir = NULL};
 #pragma omp threadprivate(kill_me_on_exit)
 
-void fatal(error_code_t err);
-void cleanup(error_code_t err);
+void fatal(error_code_t err, const char* where);
+void cleanup(error_code_t err, const char* where);
 
 #define max(a, b)           \
   ({                        \
@@ -78,13 +82,13 @@ void generate_population(Individual* population, int size) {
 
 void wait_for_fifo(int fd) {
   struct pollfd poll_fd = {fd, POLLIN, 0};
-  if (poll(&poll_fd, 1, 30000) <= 0) fatal(READ_FIFO);
+  if (poll(&poll_fd, 1, TIMEOUT_MS) <= 0) fatal(READ_FIFO, "wait_for_fifo");
 }
 
 bool read_from_fifo(int fd, char* buffer, size_t size) {
   wait_for_fifo(fd);
   ssize_t bytes_read = read(fd, buffer, size - 1);
-  if (bytes_read < 0) fatal(READ_FIFO);
+  if (bytes_read < 0) fatal(READ_FIFO, "read_from_fifo");
   buffer[bytes_read] = '\0';
   return true;
 }
@@ -96,11 +100,11 @@ void prepare_subprocess() {
 
   snprintf(kill_me_on_exit.fifo_path, sizeof(kill_me_on_exit.fifo_path),
            "%s/fifo", kill_me_on_exit.temp_dir);
-  if (mkfifo(kill_me_on_exit.fifo_path, 0666) == -1) fatal(READ_FIFO);
+  if (mkfifo(kill_me_on_exit.fifo_path, 0666) == -1) fatal(READ_FIFO, "prepare_subprocess_1");
 
   kill_me_on_exit.fd = open(kill_me_on_exit.fifo_path, O_RDWR);
 
-  if (kill_me_on_exit.fd == -1) fatal(READ_FIFO);
+  if (kill_me_on_exit.fd == -1) fatal(READ_FIFO, "prepare_subprocess_2");
 
   kill_me_on_exit.process = malloc(sizeof(struct subprocess_s));
   const char* command_line[] = {"python3", "agent.py",
@@ -110,7 +114,7 @@ void prepare_subprocess() {
                             subprocess_option_search_user_path |
                             subprocess_option_enable_async,
                         kill_me_on_exit.process))
-    fatal(CREATE);
+    fatal(CREATE, "prepare_subprocess_3");
 }
 
 // Subprocess call to the Python agent
@@ -128,7 +132,7 @@ double evaluate_fitness(Individual ind) {
 
   char fifo_command[32];
   read_from_fifo(kill_me_on_exit.fd, fifo_command, sizeof(fifo_command));
-  if (strcmp(fifo_command, "listening") != 0) fatal(READ_FIFO);
+  if (strcmp(fifo_command, "listening") != 0) fatal(READ_FIFO, "evaluate_fitness_1");
 
   // Send hyperparameters
   fprintf(p_stdin, "%d %d %.17lg %d %d\n", ind.layers, ind.neurons,
@@ -143,7 +147,7 @@ double evaluate_fitness(Individual ind) {
 
   if (fgets(result, sizeof(result), p_stdout) == NULL ||
       sscanf(result, "%lg", &accuracy) != 1)
-    fatal(READ_STD);
+    fatal(READ_STD, "evaluate_fitness_2");
 
   return accuracy;
 }
@@ -263,7 +267,6 @@ int main() {
         sum_fitness = 0.0;
       }
 
-// Evaluate fitness
 #pragma omp for reduction(+ : sum_fitness) reduction(max : max_fitness) \
     reduction(pick_best : best_individual_accuracy)
       for (int i = 0; i < population_size; i++) {
@@ -329,8 +332,8 @@ int main() {
   return 0;
 }
 
-void fatal(error_code_t err) {
-  cleanup(err);
+void fatal(error_code_t err, const char* where) {
+  cleanup(err, where);
   exit(err);
 }
 
@@ -348,7 +351,7 @@ char* dump_stdout(FILE* p_stdout) {
   return buff;
 }
 
-void cleanup(error_code_t err) {
+void cleanup(error_code_t err, const char* where) {
   if (kill_me_on_exit.process) {
     switch (err) {
       case READ_STD:
@@ -358,19 +361,19 @@ void cleanup(error_code_t err) {
         break;
 
       case READ_FIFO:
-        fprintf(stderr, "Error reading from FIFO\n");
+        fprintf(stderr, "Error reading from FIFO: %s\n", where);
         break;
 
       case TERMINATE:
-        fprintf(stderr, "Failed to terminate subprocess\n");
+        fprintf(stderr, "Failed to terminate subprocess: %s\n", where);
         break;
 
       case DESTROY:
-        fprintf(stderr, "Failed to destroy subprocess\n");
+        fprintf(stderr, "Failed to destroy subprocess: %s\n", where);
         break;
 
       case UNKNOWN:
-        fprintf(stderr, "No sei\n");
+        fprintf(stderr, "No sei: %s\n", where);
         break;
 
       default:
