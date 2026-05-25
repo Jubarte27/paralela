@@ -17,7 +17,7 @@ case "$1" in
         ;;
 esac
 
-if ! gcc -g -rdynamic -O1 -fopenmp "$TARGET/ga.c" -I"$TARGET" -lm -o "$TARGET/ga"; then
+if ! gcc -g -rdynamic -O3 -fopenmp "$TARGET/ga.c" -I"$TARGET" -lm -o "$TARGET/ga"; then
     echo "Failed to compile ga.c"
     exit 1
 fi

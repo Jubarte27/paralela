@@ -30,8 +30,6 @@
   })
 
 const char EXIT[] = "exit\n";
-#define TIMEOUT_MS (2 * 60 * 1000)  // 2m
-#define SMALL_TIMEOUT_MS (500)
 
 typedef enum {
   UNKNOWN,
@@ -74,12 +72,15 @@ typedef struct limits_t {
   int_range_t activation;
 } limits_t;
 
+#define TIMEOUT_MS (5 * 60 * 1000)  // 2m
+#define SMALL_TIMEOUT_MS (500)
+
 const limits_t default_limits = {
     .layers = {1, 3},
     .learning_rate = {-4.0, -1.0},
     .activation = {0, 2},
 };
-const int_range_t default_neuron_limits[] = { {32, 256}, {8, 32}, {4, 16} };
+const int_range_t default_neuron_limits[] = { {32, 256}, {16, 128}, {8, 64} };
 const int default_batch_choices[] = { 32, 64, 128 };
 
 const limits_t limits = default_limits;
@@ -163,7 +164,7 @@ int main() {
       for (int generation = 0; generation < num_generations; generation++) {
         printf("\nGeneration %2d/%2d\n", generation + 1, num_generations);
 
-      #pragma omp parallell for schedule(dynamic)
+      #pragma omp parallel for schedule(dynamic)
         for (int i = 0; i < pop_size; i++) {
           send_evaluation_request(i, population[i]);
           printf("?");
@@ -353,7 +354,7 @@ void crossover(const Individual* parents, int num_parents, Individual* offspring
   const Individual* p2 = parents + p2_idx;
   Individual child;
 
-  int cp = random_randint(0, 5);
+  int cp = random_randint(1, 4); // no clones
   child.layers = (cp > 0) ? p1->layers : p2->layers;
   child.neurons = (cp > 1) ? p1->neurons : p2->neurons;
   child.learning_rate = (cp > 2) ? p1->learning_rate : p2->learning_rate;

@@ -10,6 +10,8 @@ import tensorflow as tf
 class Agent():
     # load fashion mnist dataset
     def __init__(self):
+        tf.random.set_seed(42)
+        random.seed(42)
         (X_train, y_train), (X_test, y_test) = keras.datasets.fashion_mnist.load_data()
 
         # normalize data
@@ -52,7 +54,8 @@ class Agent():
 
         # build the model
         model = keras.models.Sequential()
-        model.add(keras.layers.Dense(neurons, activation=activation, input_shape=(784,)))
+        model.add(tf.keras.layers.Input(shape=(784,)))
+        model.add(keras.layers.Dense(neurons, activation=activation))
         model.add(keras.layers.Dense(10, activation='softmax'))
 
         # compile the model
@@ -81,107 +84,8 @@ class Agent():
             return 0  # default fitness value when error
 
         # validation accuracy of the last epoch
-        val_accuracy = history.history['val_accuracy'][-1]
+        val_accuracy = max(history.history['val_accuracy'])
         return val_accuracy
-
-class GeneticAlgorithm:
-    # step 2 - generate population
-    def generate_population(self, size):
-        population = []
-        for _ in range(size):
-            neurons = random.randint(32, 256)
-            learning_rate = 10 ** random.uniform(-4, -1)
-            batch_size = random.choice([32, 64, 128])
-            activation = random.randint(0, 2)
-            individual = [neurons, learning_rate, batch_size, activation]
-            population.append(individual)
-        return population
-
-    # step 3 - selection (returns parents)
-    def selection(self, population, fitness_scores, num_parents):
-        parents = []
-        for _ in range(num_parents):
-            idx1, idx2 = random.sample(range(len(population)), 2)
-            if fitness_scores[idx1] > fitness_scores[idx2]:
-                parents.append(population[idx1])
-            else:
-                parents.append(population[idx2])
-        return parents
-
-    # step 4 - crossover (returns offsprings)
-    def crossover(self, parents, offspring_size):
-        offspring = []
-        for _ in range(offspring_size):
-            parent1, parent2 = random.sample(parents, 2)
-            crossover_point = random.randint(1, len(parent1)-1)
-            child = parent1[:crossover_point] + parent2[crossover_point:]
-            offspring.append(child)
-        return offspring
-
-    # step 5 - mutation (adds randomness)
-    def mutation(self, offspring):
-        for individual in offspring:
-            if random.random() < 0.1:
-                mutation_index = random.randint(0, len(individual)-1)
-                if mutation_index == 0:
-                    individual[mutation_index] = random.randint(32, 256)
-                elif mutation_index == 1:
-                    individual[mutation_index] = 10 ** random.uniform(-4, -1)
-                elif mutation_index == 2:
-                    individual[mutation_index] = random.choice([32, 64, 128])
-                elif mutation_index == 3:
-                    individual[mutation_index] = random.randint(0, 2)
-        return offspring
-
-    # step 6 - ga optimization
-    def genetic_algorithm(self):
-
-        agent = Agent()
-
-        num_generations = 5
-        population_size = 10
-        num_parents = 5
-
-        best_accuracies = []    
-        average_accuracies = []
-
-        population = self.generate_population(population_size)
-        best_individual = None
-        best_accuracy = 0
-
-        for generation in range(num_generations):
-            print(f"nGeneration {generation}")
-
-            # evaluate fitness
-            fitness_scores = []
-            for idx, individual in enumerate(population):
-                print(f"Evaluating Individual {idx+1}/{len(population)}")
-                accuracy = agent.fitness_function(individual)
-                fitness_scores.append(accuracy)
-                print(f"Validation Accuracy: {accuracy:.4f}")
-
-                if accuracy > best_accuracy:
-                    best_accuracy = accuracy
-                    best_individual = individual
-
-            # record metrics
-            best_accuracies.append(max(fitness_scores))
-            average_accuracies.append(sum(fitness_scores) / len(fitness_scores))
-
-            # selection
-            parents = self.selection(population, fitness_scores, num_parents)
-
-            # crossover
-            offspring_size = population_size - len(parents)
-            offspring = self.crossover(parents, offspring_size)
-
-            # mutation
-            offspring = self.mutation(offspring)
-
-            # next generation of population
-            population = parents + offspring
-        
-        return best_accuracies, best_accuracy, best_individual
 
 if __name__ == "__main__":
     if len(sys.argv) != 5:

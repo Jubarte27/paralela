@@ -1,22 +1,42 @@
-# import libraries
-from io import TextIOWrapper
 import os
-import random
-from contextlib import redirect_stdout
 import sys
-import select
-from typing import TextIO
-import uuid
+import random
 import time
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from io import TextIOWrapper
+from contextlib import redirect_stdout
+from concurrent.futures import ProcessPoolExecutor
 
-
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # 0, 1, 2, or 3
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1" 
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["HIP_VISIBLE_DEVICES"] = "-1"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["TF_NUM_INTEROP_THREADS"] = "1"
+os.environ["TF_NUM_INTRAOP_THREADS"] = "1"
+
 import tensorflow as tf
+
+
+@dataclass
+class Individual:
+    layers: int
+    neurons: int
+    learning_rate: float
+    batch_size: int
+    activation: int
+
+    @staticmethod
+    def decode(string: str):
+        args = string.split(" ")
+        layers = int(args[0])
+        neurons = int(args[1])
+        learning_rate = float(args[2])
+        batch_size = int(args[3])
+        activation = int(args[4])
+
+        return Individual(layers, neurons, learning_rate, batch_size, activation)
 
 
 class TimeoutCallback(tf.keras.callbacks.Callback):
@@ -36,60 +56,27 @@ class TimeoutCallback(tf.keras.callbacks.Callback):
             print(f"\nReached timeout of {self.timeout_seconds}s. Stopping training...")
             self.model.stop_training = True
 
-class Agent():
-    data_loaded = False
-    X_train = None
-    y_train = None
-    X_test = None
-    y_test = None
 
-    # load fashion mnist dataset
-    def __init__(self):
+class Agent:
+
+    def __init__(self, X_train, y_train, X_test, y_test):
         tf.random.set_seed(42)
         random.seed(42)
 
-        if not Agent.data_loaded:
-            (X_train, y_train), (X_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
+        self.X_train = X_train
+        self.y_train = y_train
+        self.X_test = X_test
+        self.y_test = y_test
 
-            # normalize data
-            X_train = X_train / 255.0
-            X_test = X_test / 255.0
-
-            # reshape data
-            X_train = X_train.reshape(-1, 28 * 28)
-            X_test = X_test.reshape(-1, 28 * 28)
-
-            # convert labels to categorical
-            y_train = tf.keras.utils.to_categorical(y_train, 10)
-            y_test = tf.keras.utils.to_categorical(y_test, 10)
-
-            subset = 10000
-            X_train = X_train[:subset]
-            y_train = y_train[:subset]
-
-            (Agent.X_train, Agent.y_train), (Agent.X_test, Agent.y_test) = (X_train, y_train), (X_test, y_test)
-            Agent.data_loaded = True
-            
-        self.X_train = Agent.X_train
-        self.y_train = Agent.y_train
-        self.X_test = Agent.X_test
-        self.y_test = Agent.y_test
-    
-    # step 1 - fitness function
-    def fitness_function(self, individual):
-        # decode individuals
-        layers = int(individual[0])
-        neurons = int(individual[1])
-        learning_rate = individual[2]
-        batch_size = int(individual[3])
-        activation = ['relu', 'tanh', 'sigmoid'][int(individual[4])]
+    def fitness_function(self, individual: Individual):
+        activation = ["relu", "tanh", "sigmoid"][individual.activation]
 
         # build the model
         model = tf.keras.models.Sequential()
         model.add(tf.keras.layers.Input(shape=(784,)))
 
-        current_neurons = neurons
-        for _ in range(layers):
+        current_neurons = individual.neurons
+        for _ in range(individual.layers):
             model.add(tf.keras.layers.Dense(current_neurons, activation=activation))
             if current_neurons <= 4:
                 pass
@@ -99,106 +86,129 @@ class Agent():
                 current_neurons -= 4
             else:
                 current_neurons = current_neurons // 2
-        
-        model.add(tf.keras.layers.Dense(10, activation='softmax'))
 
-        optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-        model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+        model.add(tf.keras.layers.Dense(10, activation="softmax"))
 
-        early_stop = tf.keras.callbacks.EarlyStopping(
-            monitor='val_accuracy',
-            patience=2,
-            restore_best_weights=True
+        optimizer = tf.keras.optimizers.Adam(learning_rate=individual.learning_rate)
+        model.compile(
+            optimizer=optimizer, loss="categorical_crossentropy", metrics=["accuracy"]
         )
 
-        timeout = TimeoutCallback(timeout_seconds=60) # 1-minute limit
+        early_stop = tf.keras.callbacks.EarlyStopping(
+            monitor="val_accuracy", patience=2, restore_best_weights=True
+        )
+
+        timeout = TimeoutCallback(timeout_seconds=60)  # 1-minute limit
 
         try:
             history = model.fit(
-                self.X_train, self.y_train,
+                self.X_train,
+                self.y_train,
                 epochs=5,
-                batch_size=batch_size,
+                batch_size=individual.batch_size,
                 validation_data=(self.X_test, self.y_test),
                 verbose=0,
-                callbacks=[early_stop, timeout]
+                callbacks=[early_stop, timeout],
             )
         except Exception as e:
-            return 0.0  # default fitness value when error
+            return 0.0
 
-        val_accuracy = max(history.history['val_accuracy'])
+        val_accuracy = max(history.history["val_accuracy"])
         return val_accuracy
 
-def read_stdin_with_timeout(timeout_seconds=5, write_on_err=None):
-    ready, _, _ = select.select([sys.stdin.fileno()], [], [], timeout_seconds)
-    
-    if ready:
-        return sys.stdin.readline().rstrip()
-    else:
-        raise BufferError()
 
-# --- WORKER FUNCTION ---
-def worker_task(agent, line, print_lock, print_file: TextIO):
-    """Executes a single evaluation in a background thread."""
+# Global variable designated for each separate worker process
+worker_agent = None
+
+
+def init_worker(X_train, y_train, X_test, y_test):
+    tf.config.threading.set_inter_op_parallelism_threads(1)
+    tf.config.threading.set_intra_op_parallelism_threads(1)
+
+    global worker_agent
+    worker_agent = Agent(X_train, y_train, X_test, y_test)
+
+
+def worker_task(line: str) -> str:
+    global worker_agent
+    if not worker_agent:
+        raise RuntimeError("Worker agent not initialized.")
     args = line.split(" ")
-    try:
-        task_id = int(args[0])
-        layers = int(args[1])
-        neurons = int(args[2])
-        learning_rate = float(args[3])
-        batch_size = int(args[4])
-        activation = int(args[5])
-        
-        individual = [layers, neurons, learning_rate, batch_size, activation]
+    task_id = int(args[0])
+    individual = Individual.decode(" ".join(args[1:6]))
 
-        with open(os.devnull, 'w') as out_null:
+    try:
+        with open(os.devnull, "w") as out_null:
             with redirect_stdout(out_null):
-                accuracy = agent.fitness_function(individual)
-        
-        with print_lock:
-            print(f"{task_id} {accuracy:.17f}", file=print_file)
-            # with open(f"{uuid.uuid4()}.txt", '+a') as f:
-            #     print(f"wrote", file=f, flush=True)
+                accuracy = worker_agent.fitness_function(individual)
+        return f"{task_id} {accuracy:.17f}"
 
     except Exception as e:
-        with print_lock:
-            print_file.write(f"{args[0]} -inf\n") 
-            print_file.flush()
+        return f"{task_id} -inf"
+
+
+def load_and_preprocess_data():
+    """Loads and preprocesses the dataset once for the main process."""
+    (X_train, y_train), (X_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
+
+    # normalize data
+    X_train = X_train / 255.0
+    X_test = X_test / 255.0
+
+    # reshape data
+    X_train = X_train.reshape(-1, 28 * 28)
+    X_test = X_test.reshape(-1, 28 * 28)
+
+    # convert labels to categorical
+    y_train = tf.keras.utils.to_categorical(y_train, 10)
+    y_test = tf.keras.utils.to_categorical(y_test, 10)
+
+    subset = 10000
+    X_train = X_train[:subset]
+    y_train = y_train[:subset]
+
+    return X_train, y_train, X_test, y_test
+
 
 def main(max_workers=8):
-    agent = Agent()
     print_lock = threading.Lock()
-    print_file = sys.stdout
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+
+    def output_result(future):
+        """Callback to handle outputs centrally in the main process."""
+        result = future.result()
+        with print_lock:
+            print(result, flush=True)
+
+    X_train, y_train, X_test, y_test = load_and_preprocess_data()
+
+    with ProcessPoolExecutor(
+        max_workers=max_workers,
+        initializer=init_worker,
+        initargs=(X_train, y_train, X_test, y_test),
+    ) as executor:
         while True:
             try:
                 line = input()
                 # with open(f"{uuid.uuid4()}.txt", '+a') as f:
                 #     f.write(f"{line}\n{threading.active_count()}\n")
                 #     f.flush()
-                
+
                 if not line:
                     continue
                 if line == "exit":
                     break
-                
-                # Dispatch the request to a background thread
-                executor.submit(worker_task, agent, line, print_lock, print_file)
 
+                executor.submit(worker_task, line).add_done_callback(output_result)
+
+            except EOFError:
+                break
             except BufferError:
                 # Timeout waiting for stdin, just loop and listen again
                 continue
             except KeyboardInterrupt:
                 break
 
+
 if __name__ == "__main__":
-    tf.config.threading.set_inter_op_parallelism_threads(1)
-    tf.config.threading.set_intra_op_parallelism_threads(1)
-
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["TF_NUM_INTEROP_THREADS"] = "1"
-    os.environ["TF_NUM_INTRAOP_THREADS"] = "1"
-
     max_workers = int(sys.argv[1]) if len(sys.argv) >= 2 else 8
-
-    main()
+    main(max_workers)
