@@ -22,4 +22,4 @@ if ! gcc -g -rdynamic -O3 -fopenmp "$TARGET/ga.c" -I"$TARGET" -lm -o "$TARGET/ga
     exit 1
 fi
 
-source "$VENV/bin/activate" && cd "$TARGET" && ./ga
+source "$VENV/bin/activate" && cd "$HERE" && "$TARGET/ga"

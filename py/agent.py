@@ -9,12 +9,14 @@ from contextlib import redirect_stdout
 from concurrent.futures import ProcessPoolExecutor
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-os.environ["HIP_VISIBLE_DEVICES"] = "-1"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["TF_NUM_INTEROP_THREADS"] = "1"
-os.environ["TF_NUM_INTRAOP_THREADS"] = "1"
+SINGLE_THREAD = (sys.argv[1].lower() == "true") if len(sys.argv) >= 2 else False
+if SINGLE_THREAD:
+    os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    os.environ["HIP_VISIBLE_DEVICES"] = "-1"
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["TF_NUM_INTEROP_THREADS"] = "1"
+    os.environ["TF_NUM_INTRAOP_THREADS"] = "1"
 
 import tensorflow as tf
 
@@ -122,8 +124,9 @@ worker_agent = None
 
 
 def init_worker(X_train, y_train, X_test, y_test):
-    tf.config.threading.set_inter_op_parallelism_threads(1)
-    tf.config.threading.set_intra_op_parallelism_threads(1)
+    if SINGLE_THREAD:
+        tf.config.threading.set_inter_op_parallelism_threads(1)
+        tf.config.threading.set_intra_op_parallelism_threads(1)
 
     global worker_agent
     worker_agent = Agent(X_train, y_train, X_test, y_test)
@@ -210,5 +213,5 @@ def main(max_workers=8):
 
 
 if __name__ == "__main__":
-    max_workers = int(sys.argv[1]) if len(sys.argv) >= 2 else 8
+    max_workers = int(sys.argv[2]) if len(sys.argv) >= 3 else 8
     main(max_workers)

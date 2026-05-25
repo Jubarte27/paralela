@@ -30,6 +30,7 @@
   })
 
 const char EXIT[] = "exit\n";
+static int OUR_THREADS;
 
 typedef enum {
   UNKNOWN,
@@ -136,8 +137,9 @@ void mutation(Individual* offspring, int i);
 
 int main() {
   srand((unsigned int)time(NULL));
-  omp_set_num_threads(max(omp_get_num_procs() / 2, 1));
-  printf("Using %d threads\n", omp_get_max_threads());
+  OUR_THREADS = max(omp_get_num_procs() / 2, 1);
+  omp_set_num_threads(OUR_THREADS);
+  printf("Using %d threads\n", OUR_THREADS);
 
   int num_generations = 10;
   int pop_size = 10;
@@ -400,7 +402,9 @@ void mutation(Individual* offspring, int i) {
 //--------------- SUBPROC ---------------
 
 void prepare_subprocess() {
-  const char* command_line[] = { "python3", "-u", "agent.py", NULL };
+  char n_workers[4];
+  snprintf(n_workers, sizeof(n_workers), "%d", OUR_THREADS);
+  const char* command_line[] = { "python3", "-u", "py/agent.py", "true", n_workers, NULL };
   if (subprocess_create(command_line,
     subprocess_option_inherit_environment |
     subprocess_option_search_user_path |

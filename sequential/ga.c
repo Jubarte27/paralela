@@ -6,8 +6,6 @@
 
 #include <subprocess.h>
 
-// Define the structure of an Individual
-// Added 'layers' to match Python's Individual.decode mapping
 typedef struct
 {
     int layers;
@@ -17,13 +15,11 @@ typedef struct
     int activation;
 } Individual;
 
-// Utility function for random uniform double between min and max
 double random_uniform(double min, double max)
 {
     return min + (max - min) * ((double)rand() / RAND_MAX);
 }
 
-// Utility function for random integer between min and max (inclusive)
 int random_randint(int min, int max)
 {
     return min + rand() % (max - min + 1);
@@ -191,7 +187,7 @@ int main()
     generate_population(population, population_size);
 
     // Start Python ONCE ----
-    const char *command_line[] = {"python3", "agent.py", "8", NULL};
+    const char *command_line[] = {"python3", "py/agent.py", "false", "8", NULL};
     struct subprocess_s subprocess;
     ensure_zero(subprocess_create(command_line, subprocess_option_inherit_environment | subprocess_option_search_user_path, &subprocess), "create");
 
