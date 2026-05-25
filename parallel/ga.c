@@ -1,3 +1,5 @@
+#include <errno.h>
+#include <execinfo.h>
 #include <fcntl.h>
 #include <math.h>
 #include <omp.h>
@@ -7,7 +9,10 @@
 #include <string.h>
 #include <subprocess.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <termios.h>
 #include <time.h>
+#include <unistd.h>
 
 #define max(a, b)           \
   ({                        \
@@ -16,30 +21,29 @@
     _a > _b ? _a : _b;      \
   })
 
-#define MINUTES_TO_SECONDS 60
-#define SECONDS_TO_MILLISECONDS 1000
-#define TIMEOUT_MS (1 * MINUTES_TO_SECONDS * SECONDS_TO_MILLISECONDS)
+#define min(a, b)           \
+  ({                        \
+    __typeof__(a) _a = (a); \
+    __typeof__(b) _b = (b); \
+    _a < _b ? _a : _b;      \
+  })
 
-const char TEMPLATE_DIR[] = "/tmp/paralela-fifo-XXXXXX";
-const char FIFO_SUFFIX[] = "/fifo";
-const int batch_choices[] = {32, 64, 128};
+const char EXIT[] = "exit\n";
+const char LISTENING[] = "listening\n";
+#define ACCURACY_SIZE 20  // 0.84200000762939450\n
+#define TIMEOUT_MS (2 * 60 * 1000)
 
 typedef enum {
-  UNKNOWN = -1,
-  SUCCESS = 0,
-  TERMINATE = 1,
-  DESTROY = 2,
-  READ_FIFO = 3,
-  READ_STD = 4,
-  CREATE = 5,
+  UNKNOWN,
+  SUCCESS,
+  TERMINATE,
+  DESTROY,
+  READ_FILDES,
+  READ_STD,
+  CREATE,
+  WRITE_FILDES,
+  READ_FILDES_TIMEOUT
 } error_code_t;
-
-typedef struct thread_state_t {
-  struct subprocess_s* process;
-  int fd;
-  char temp_dir[sizeof(TEMPLATE_DIR) + 1];
-  char fifo_path[sizeof(TEMPLATE_DIR) + sizeof(FIFO_SUFFIX) + 1];
-} thread_state_t;
 
 typedef struct {
   int layers;
@@ -54,23 +58,78 @@ typedef struct {
   double accuracy;
 } IndividualAccuracy;
 
+typedef struct double_range_t {
+  double min;
+  double max;
+} double_range_t;
+
+typedef struct int_range_t {
+  int min;
+  int max;
+} int_range_t;
+
+typedef struct thread_state_t {
+  struct subprocess_s* process;
+  char reusable_buffer[256];
+} thread_state_t;
+
+typedef struct limits_t {
+  int_range_t layers;
+  double_range_t learning_rate;
+  int_range_t activation;
+} limits_t;
+
+thread_state_t thread_state = {NULL, ""};
+#pragma omp threadprivate(thread_state)
+
+const limits_t default_limits = {
+    .layers = {1, 3},
+    .learning_rate = {-4.0, -1.0},
+    .activation = {0, 2},
+};
+const int_range_t default_neuron_limits[] = {{32, 256}, {8, 32}, {4, 16}};
+const int default_batch_choices[] = {32, 64, 128};
+
+const limits_t limits = default_limits;
+
+const int_range_t* neuron_limits = default_neuron_limits;
+int neuron_limits_len = sizeof(default_neuron_limits);
+
+const int* batch_choices = default_batch_choices;
+int batch_choices_len = sizeof(default_batch_choices);
+
+//--------------- ERROR ---------------
+
 void fatal(error_code_t err, const char* where);
 void cleanup(error_code_t err, const char* where);
 
 //--------------- PROCESS ---------------
 
-void wait_for_fifo(int fd);
-bool read_from_fifo(int fd, char* buffer, size_t size);
+bool wait_for_fildes(int fd);
+bool wait_and_read(int fd, char* buffer, size_t size);
 void prepare_subprocess();
+int subprocess_join_timeout(pid_t child_pid, int timeout_ms, int* exit_status);
 
 //--------------- RANDS ---------------
 
-// inclusive
-double random_between(double min, double max);
-// inclusive
-int random_randint(int min, int max);
+double random_between(double min, double max);  // inclusive
+int random_randint(int min, int max);           // inclusive
 int random_choice(const int* choices, int num_choices);
 void select_random_distinct(int* arr, int n, int k);
+
+int random_layers();
+int random_neurons(int layers);
+double random_learning_rate();
+int random_batch_size();
+int random_activation();
+
+int clamp_neurons(int neurons, int layer);
+
+//--------------- UNUSED BUT MAYBE USEFULL ---------------
+
+__attribute__((unused)) static void dump_fd_to_stdout(int fd);
+__attribute__((unused)) static void print_stack_trace();
+__attribute__((unused)) static int get_cursor_row();
 
 //--------------- GA ---------------
 
@@ -82,59 +141,53 @@ void crossover(Individual* parents, int num_parents, Individual* offspring,
                int offspring_size);
 void mutation(Individual* offspring, int offspring_size);
 
-thread_state_t thread_state = {NULL, -1, "", ""};
-#pragma omp threadprivate(thread_state)
-
 #pragma omp declare reduction(pick_best:IndividualAccuracy : (            \
         omp_out = omp_in.accuracy > omp_out.accuracy ? omp_in : omp_out)) \
     initializer(omp_priv = {.accuracy = -INFINITY})
 
 int main() {
   srand((unsigned int)time(NULL));
-  omp_set_num_threads(max(omp_get_num_procs() - 2, 1));
+  omp_set_num_threads(max(omp_get_num_procs() / 2, 1));
   printf("Using %d threads\n", omp_get_max_threads());
 
   int num_generations = 10;
-  int population_size = omp_get_max_threads();
-  int num_parents = population_size / 4;
-  int offspring_size = population_size - num_parents;
+  // int pop_size = max(omp_get_max_threads() * 4, 4);
+  int pop_size = 10;
+  int num_parents = pop_size / 2;
+  int offspring_size = pop_size - num_parents;
 
-  // Memory allocation
-  Individual* population = malloc(population_size * sizeof(Individual));
+  Individual* population = malloc(pop_size * sizeof(Individual));
+  Individual* next_population = malloc(pop_size * sizeof(Individual));
   Individual* parents = malloc(num_parents * sizeof(Individual));
   Individual* offspring = malloc(offspring_size * sizeof(Individual));
-  Individual* next_population = malloc(population_size * sizeof(Individual));
-  double* fitness_scores = malloc(population_size * sizeof(double));
+  double* fitness_scores = malloc(pop_size * sizeof(double));
 
   IndividualAccuracy best_individual_accuracy = {.accuracy = -INFINITY};
 
-  generate_population(population, population_size);
+  generate_population(population, pop_size);
 
   double max_fitness = -1.0;
   double sum_fitness = 0.0;
 #pragma omp parallel shared(max_fitness, sum_fitness)
   {
-    prepare_subprocess();
     for (int generation = 0; generation < num_generations; generation++) {
 #pragma omp single
       {
-        printf("\nGeneration %d\n", generation);
+        printf("\nGeneration %2d/%2d\n", generation + 1, num_generations);
         max_fitness = -1.0;
         sum_fitness = 0.0;
       }
 
 #pragma omp for reduction(+ : sum_fitness) reduction(max : max_fitness) \
-    reduction(pick_best : best_individual_accuracy)
-      for (int i = 0; i < population_size; i++) {
-        printf("%2d/%2d.start\n", i + 1, population_size);
+    reduction(pick_best : best_individual_accuracy) schedule(dynamic)
+      for (int i = 0; i < pop_size; i++) {
+        printf("!");
+        fflush(stdout);
 
         IndividualAccuracy individual_accuracy = {
             population[i], evaluate_fitness(population[i])};
 
         fitness_scores[i] = individual_accuracy.accuracy;
-
-        printf("%2d/%2d.acc=%.17g\n", i + 1, population_size, individual_accuracy.accuracy);
-
         sum_fitness += individual_accuracy.accuracy;
 
         if (individual_accuracy.accuracy > max_fitness)
@@ -144,40 +197,59 @@ int main() {
           best_individual_accuracy.accuracy = individual_accuracy.accuracy;
           best_individual_accuracy.individual = individual_accuracy.individual;
         }
+        if (thread_state.process == NULL) {
+          // timeout
+          printf("<layer:%d|neurons:%d>", population[i].layers,
+                 population[i].neurons);
+        } else {
+          printf(".");
+        }
+        fflush(stdout);
       }
 
 #pragma omp single
       {
-        printf("Best Gen Accuracy: %.17g | Avg Gen Accuracy: %.17g\n",
-               max_fitness, sum_fitness / population_size);
+        printf("\n");
+        for (int i = 0; i < pop_size; i++) {
+          printf("%2d/%2d.acc=%.17f\n", i + 1, pop_size, fitness_scores[i]);
+        }
 
-        selection(population, fitness_scores, population_size, parents,
-                  num_parents);
+        printf(
+            "Best Gen Accuracy: %.17f | Avg Gen Accuracy: %.17f | Best so far: "
+            "%.17f\n",
+            max_fitness, sum_fitness / pop_size,
+            best_individual_accuracy.accuracy);
+
+        selection(population, fitness_scores, pop_size, parents, num_parents);
         crossover(parents, num_parents, offspring, offspring_size);
         mutation(offspring, offspring_size);
 
         // Construct next generation
-        for (int i = 0; i < num_parents; i++) next_population[i] = parents[i];
-        for (int i = 0; i < offspring_size; i++)
+        for (int i = 0; i < num_parents; i++) {
+          next_population[i] = parents[i];
+        }
+        for (int i = 0; i < offspring_size; i++) {
           next_population[num_parents + i] = offspring[i];
+        }
 
         // Prepare for the next generation
         Individual* temp = population;
         population = next_population;
         next_population = temp;
-        printf("\n=== Optimization Complete ===\n");
-        printf("Best Accuracy: %lg\n", best_individual_accuracy.accuracy);
-        printf(
-            "Best Hyperparameters: Layers=%d, Neurons=%d, LR=%lf, Batch=%d, "
-            "Act=%d\n",
-            best_individual_accuracy.individual.layers,
-            best_individual_accuracy.individual.neurons,
-            best_individual_accuracy.individual.learning_rate,
-            best_individual_accuracy.individual.batch_size,
-            best_individual_accuracy.individual.activation);
       }
     }
+    cleanup(SUCCESS, "parallel_end");
   }
+  printf("\n=== Optimization Complete ===\n");
+  printf("Best Accuracy: %lg\n", best_individual_accuracy.accuracy);
+  printf(
+      "Best Hyperparameters: Layers=%d, Neurons=%d, LR=%lf, Batch=%d, "
+      "Act=%d\n",
+      best_individual_accuracy.individual.layers,
+      best_individual_accuracy.individual.neurons,
+      best_individual_accuracy.individual.learning_rate,
+      best_individual_accuracy.individual.batch_size,
+      best_individual_accuracy.individual.activation);
 
   free(population);
   free(parents);
@@ -188,35 +260,35 @@ int main() {
   return 0;
 }
 
-void generate_population(Individual* population, int size) {
-  for (int i = 0; i < size; i++) {
-    population[i].layers = random_randint(1, 3);
-    population[i].neurons = random_randint(8, 256 / population[i].layers);
-    population[i].learning_rate = pow(10, random_between(-4.0, -1.0));
-    population[i].batch_size = random_choice(batch_choices, 3);
-    population[i].activation = random_randint(0, 2);
-  }
-}
-
-// Subprocess call to the Python agent
 double evaluate_fitness(Individual ind) {
+  if (thread_state.process == NULL) {
+    prepare_subprocess();
+  }
+
   struct subprocess_s* p = thread_state.process;
-  char result[64];
   double accuracy = 0.0;
 
-  read_from_fifo(thread_state.fd, result, sizeof(result));
-  if (strcmp(result, "listening") != 0) fatal(READ_FIFO, "evaluate_fitness_1");
-
   // Send hyperparameters
-  fprintf(p->stdin_file, "%d %d %.17lg %d %d\n", ind.layers, ind.neurons,
-          ind.learning_rate, ind.batch_size, ind.activation);
-  fflush(p->stdin_file);
+  int size;
+  if ((size = sprintf(thread_state.reusable_buffer, "%d %d %.17lg %d %d\n",
+                      ind.layers, ind.neurons, ind.learning_rate,
+                      ind.batch_size, ind.activation)) <= 0) {
+    fatal(UNKNOWN, "tudo errado");
+  }
+  if (write(p->stdin_fd, thread_state.reusable_buffer, size) <= 0)
+    fatal(WRITE_FILDES, "write_params");
 
-  wait_for_fifo(thread_state.fd);
+  thread_state.reusable_buffer[0] = '\0';
 
-  if (fgets(result, sizeof(result), p->stdout_file) == NULL ||
-      sscanf(result, "%lg", &accuracy) != 1)
-    fatal(READ_STD, "evaluate_fitness_2");
+  int err;
+  if (!wait_and_read(p->stdout_fd, thread_state.reusable_buffer,
+                     ACCURACY_SIZE + 1)) {
+    return -INFINITY;
+  }
+  if ((err = sscanf(thread_state.reusable_buffer, "%lf\n", &accuracy)) != 1) {
+    cleanup(READ_FILDES, "read_accuracy");
+    return -INFINITY;
+  }
 
   return accuracy;
 }
@@ -266,6 +338,16 @@ void crossover(Individual* parents, int num_parents, Individual* offspring,
   }
 }
 
+void generate_population(Individual* population, int size) {
+  for (int i = 0; i < size; i++) {
+    population[i].layers = random_layers();
+    population[i].neurons = random_neurons(population[i].layers);
+    population[i].learning_rate = random_learning_rate();
+    population[i].batch_size = random_batch_size();
+    population[i].activation = random_activation();
+  }
+}
+
 void mutation(Individual* offspring, int offspring_size) {
   for (int i = 0; i < offspring_size; i++) {
     if ((double)rand() / RAND_MAX < 0.1) {  // 10% mutation chance
@@ -273,77 +355,60 @@ void mutation(Individual* offspring, int offspring_size) {
       int mutation_index = random_randint(0, 4);
       switch (mutation_index) {
         case 0:
-          ind->layers = random_randint(1, 3);
-          ind->neurons = max(ind->neurons, 256 / ind->layers);
+          ind->layers = random_layers();
+          ind->neurons = clamp_neurons(ind->neurons, ind->layers);
           break;
         case 1:
-          ind->neurons = random_randint(8, 256 / ind->layers);
+          ind->neurons = random_neurons(ind->layers);
           break;
         case 2:
-          ind->learning_rate = pow(10, random_between(-4.0, -1.0));
+          ind->learning_rate = random_learning_rate();
           break;
         case 3:
-          ind->batch_size = random_choice(batch_choices, 3);
+          ind->batch_size = random_batch_size();
           break;
         case 4:
-          ind->activation = random_randint(0, 2);
+          ind->activation = random_activation();
           break;
       }
     }
   }
 }
+// errors
+
+void clean_process(error_code_t err, const char* where);
 
 void fatal(error_code_t err, const char* where) {
   cleanup(err, where);
   exit(err);
 }
 
-char* dump_stdout(FILE* p_stdout) {
-  fseek(p_stdout, 0, SEEK_END);
-  long fileSize = ftell(p_stdout);
-  rewind(p_stdout);
-
-  char* buff;
-  buff = malloc(fileSize * sizeof(char) + 1);
-
-  if (fread(buff, 1, fileSize, p_stdout) != fileSize)
-    fatal(READ_STD, "dump_stdout");
-  buff[fileSize] = '\0';
-
-  return buff;
-}
-
-void clean_process(error_code_t err, const char* where);
-
 void cleanup(error_code_t err, const char* where) {
   if (thread_state.process) {
     clean_process(err, where);
   }
-  if (thread_state.fifo_path[0] != '\0') {
-    unlink(thread_state.fifo_path);
-    thread_state.fifo_path[0] = '\0';
-  }
-  if (thread_state.temp_dir[0] != '\0') {
-    rmdir(thread_state.temp_dir);
-    thread_state.temp_dir[0] = '\0';
-  }
-  if (thread_state.fd != -1) {
-    close(thread_state.fd);
-    thread_state.fd = -1;
+}
+
+void kill_child() {
+  struct subprocess_s* p = thread_state.process;
+  if (subprocess_terminate(p) != 0) {
+    fprintf(stderr, "Failed to terminate subprocess: %d\n", p->child);
   }
 }
 
 void clean_process(error_code_t err, const char* where) {
   struct subprocess_s* p = thread_state.process;
+  char buff[256];
   switch (err) {
     case READ_STD:
-      char* err = dump_stdout(p->stdout_file);
-      fprintf(stderr, "Failed to read from stdout: \"%s\"\n", err);
-      free(err);
+      fprintf(stderr, "Failed to read from stdout\n");
+      // dump_fd_to_stdout(p->stdout_fd);
       break;
 
-    case READ_FIFO:
-      fprintf(stderr, "Error reading from FIFO: %s\n", where);
+    case READ_FILDES:
+      fprintf(stderr, "Error reading from fildes: %s\n", where);
+      // dump_fd_to_stdout(p->stderr_fd);
+      // dump_fd_to_stdout(p->stdout_fd);
       break;
 
     case TERMINATE:
@@ -358,61 +423,99 @@ void clean_process(error_code_t err, const char* where) {
       fprintf(stderr, "No sei: %s\n", where);
       break;
 
+    case SUCCESS:
+    case READ_FILDES_TIMEOUT:
+      // silent
+      break;
+
     default:
       fprintf(stderr, "Unknown error: %s\n", where);
       break;
   }
-  fprintf(p->stdin_file, "exit\n");
-  if (subprocess_terminate(p) != 0) {
-    fprintf(stderr, "Failed to terminate subprocess: %d\n", p->child);
+
+  int result;
+  if (write(p->stdin_fd, EXIT, strlen(EXIT)) < 1) {
+    fprintf(stderr, "Failed to write to subprocess stdin");
+    kill_child();
+  } else if (!subprocess_join_timeout(
+                 p->child, 500,
+                 &result)) {  // dead is ok, success is ok, timeout is not
+    // you were given a chance, now you'll be killed
+    kill_child();
+  } else {
+    // all is ok
   }
+
   if (subprocess_destroy(p) != 0) {
     fprintf(stderr, "Failed to destroy subprocess: %d\n", p->child);
   }
 
-  free(thread_state.process);
-  thread_state.process = NULL;
+  if (thread_state.process) {
+    free(thread_state.process);
+    thread_state.process = NULL;
+  }
 }
 
-// FIFOS
+// fildes
 
-void wait_for_fifo(int fd) {
+bool wait_for_fildes(int fd) {
   struct pollfd poll_fd = {fd, POLLIN, 0};
-  if (poll(&poll_fd, 1, TIMEOUT_MS) <= 0) fatal(READ_FIFO, "wait_for_fifo");
-}
-
-bool read_from_fifo(int fd, char* buffer, size_t size) {
-  wait_for_fifo(fd);
-  ssize_t bytes_read = read(fd, buffer, size - 1);
-  if (bytes_read < 0) fatal(READ_FIFO, "read_from_fifo");
-  buffer[bytes_read] = '\0';
+  int result = poll(&poll_fd, 1, TIMEOUT_MS);
+  if (result < 0) {
+    fatal(READ_FILDES, "wait_for_fildes");
+  } else if (result == 0) {
+    cleanup(READ_FILDES_TIMEOUT, "timeout");
+    return false;
+  }
   return true;
 }
 
+bool wait_and_read(int fd, char* buffer, size_t size) {
+  if (!wait_for_fildes(fd)) return false;
+
+  ssize_t bytes_read = read(fd, buffer, size - 1);
+  if (bytes_read < 0) fatal(READ_FILDES, "wait_and_read");
+  if (bytes_read == 0) fatal(READ_FILDES, "fd is dead");
+  buffer[bytes_read] = '\0';
+
+  return true;
+}
+
+// subproc
+
 void prepare_subprocess() {
-  strcpy(thread_state.temp_dir, TEMPLATE_DIR);
-  if (!mkdtemp(thread_state.temp_dir)) {
-    fatal(READ_FIFO, "prepare_subprocess_mkdtemp");
-  }
-
-  snprintf(thread_state.fifo_path, sizeof(thread_state.fifo_path), "%s%s",
-           thread_state.temp_dir, FIFO_SUFFIX);
-  if (mkfifo(thread_state.fifo_path, 0666) == -1)
-    fatal(READ_FIFO, "prepare_subprocess_mkfifo");
-
-  thread_state.fd = open(thread_state.fifo_path, O_RDWR);
-
-  if (thread_state.fd == -1) fatal(READ_FIFO, "prepare_subprocess_open");
-
   thread_state.process = malloc(sizeof(struct subprocess_s));
-  const char* command_line[] = {"python3", "agent.py", thread_state.fifo_path,
-                                NULL};
+  const char* command_line[] = {"python3", "agent.py", NULL};
   if (subprocess_create(command_line,
                         subprocess_option_inherit_environment |
                             subprocess_option_search_user_path |
                             subprocess_option_enable_async,
                         thread_state.process))
     fatal(CREATE, "prepare_subprocess_subprocess_create");
+}
+
+int subprocess_join_timeout(pid_t child_pid, int timeout_ms, int* exit_status) {
+  int status;
+  int elapsed_ms = 0;
+  const int sleep_interval_ms = 10;  // Check every 10ms
+
+  while (elapsed_ms < timeout_ms) {
+    pid_t wpid = waitpid(child_pid, &status, WNOHANG);
+
+    if (wpid == child_pid) {
+      if (exit_status)
+        *exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+      return 1;  // Success
+    } else if (wpid == -1 && errno == ECHILD) {
+      return -1;  // Child is dead
+    }
+
+    // Sleep for 10ms and yield CPU, then check again
+    usleep(sleep_interval_ms * 1000);
+    elapsed_ms += sleep_interval_ms;
+  }
+
+  return 0;  // Timeout
 }
 
 // RANDS
@@ -434,7 +537,7 @@ void select_random_distinct(int* arr, int n, int k) {
 
   for (int i = 0; i < k; i++) {
     // Pick a random index from the remaining pool
-    int j = i + random_randint(0, n - 1);
+    int j = i + random_randint(0, n - i - 1);
 
     // Swap selected element arr[j] with current position arr[i]
     int temp = arr[i];
@@ -444,4 +547,138 @@ void select_random_distinct(int* arr, int n, int k) {
     // arr[i] now contains a unique random element
     printf("%d ", arr[i]);
   }
+}
+
+double random_learning_rate() {
+  return pow(
+      10, random_between(limits.learning_rate.min, limits.learning_rate.max));
+}
+int random_layers() {
+  return random_randint(limits.layers.min, limits.layers.max);
+}
+int random_batch_size() {
+  return random_choice(batch_choices, batch_choices_len);
+}
+int random_activation() {
+  return random_randint(limits.activation.min, limits.activation.max);
+}
+
+int random_neurons(int layers) {
+  if (layers > limits.layers.max || layers < limits.layers.min) {
+    fatal(UNKNOWN, "layers");
+  }
+
+  int i = layers - limits.layers.min;
+  int_range_t limit = neuron_limits[i];
+
+  return random_randint(limit.min, limit.max);
+}
+
+int clamp_neurons(int neurons, int layer) {
+  if (layer > limits.layers.max || layer < limits.layers.min) {
+    fatal(UNKNOWN, "layer");
+  }
+  int i = layer - limits.layers.min;
+
+  return min(max(neurons, neuron_limits[i].min), neuron_limits[i].max);
+}
+
+// unused
+
+void dump_fd_to_stdout(int fd) {
+  char buffer[4096];
+  ssize_t bytes_read;
+  // #pragma omp critical(stdout_lock)
+  {
+    // Read from the file descriptor in chunks until EOF (returns 0) or error
+    // (returns -1)
+    while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
+      ssize_t bytes_written = 0;
+
+      // Ensure all bytes read are completely written to stdout
+      while (bytes_written < bytes_read) {
+        ssize_t written = write(STDOUT_FILENO, buffer + bytes_written,
+                                bytes_read - bytes_written);
+
+        if (written < 0) {
+          perror("Error writing to stdout");
+          break;
+        }
+        bytes_written += written;
+      }
+    }
+  }
+
+  // If read returns a negative value, an error occurred
+  if (bytes_read < 0) {
+    perror("Error reading from file descriptor");
+  }
+}
+
+void print_stack_trace() {
+  void* buffer[100];
+  // Capture up to 100 stack frames
+  int nptrs = backtrace(buffer, 100);
+
+  // Convert addresses to human-readable strings
+  char** strings = backtrace_symbols(buffer, nptrs);
+  if (strings == NULL) {
+    perror("backtrace_symbols");
+    exit(EXIT_FAILURE);
+  }
+
+  printf("Stack Trace (%d frames):\n", nptrs);
+  for (int i = 0; i < nptrs; i++) {
+    printf("%s\n", strings[i]);
+  }
+  fflush(stdout);
+
+  free(strings);  // Free the list of strings
+}
+
+int get_cursor_row() {
+  struct termios old_term, new_term;
+  char buf[32];
+  int i = 0;
+  int row = 0, col = 0;
+
+  // 1. Save current terminal settings
+  if (tcgetattr(STDIN_FILENO, &old_term) != 0) {
+    fatal(UNKNOWN, "get_cursor_row_tcgetattr");
+    return -1;
+  }
+  new_term = old_term;
+
+  // 2. Disable canonical mode and echo. This lets us read the terminal's
+  //    response immediately without it showing up on the screen.
+  new_term.c_lflag &= ~(ICANON | ECHO);
+  if (tcsetattr(STDIN_FILENO, TCSANOW, &new_term) != 0) {
+    fatal(UNKNOWN, "get_cursor_row_tcsetattr");
+    return -1;
+  }
+
+  // 3. Request cursor position using the ANSI code \033[6n
+  if (write(STDOUT_FILENO, "\033[6n", 4) != 4) {
+    tcsetattr(STDIN_FILENO, TCSANOW, &old_term);
+    fatal(UNKNOWN, "Failed to write cursor position request");
+    return -1;
+  }
+
+  // 4. Read the response from the terminal (Format: \033[ROW;COLR)
+  while (i < sizeof(buf) - 1) {
+    if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
+    if (buf[i] == 'R') break;
+    i++;
+  }
+  buf[i] = '\0';
+
+  // 5. Restore the original terminal settings immediately
+  tcsetattr(STDIN_FILENO, TCSANOW, &old_term);
+
+  // 6. Parse the row out of the terminal's response
+  if (sscanf(buf, "\033[%d;%dR", &row, &col) == 2) {
+    return row;
+  }
+
+  return -1;  // Return error if parsing fails
 }

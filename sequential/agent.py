@@ -60,6 +60,12 @@ class Agent():
         optimizer = keras.optimizers.Adam(learning_rate=learning_rate)
         model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
 
+        early_stop = tf.keras.callbacks.EarlyStopping(
+            monitor='val_accuracy',
+            patience=2,
+            restore_best_weights=True
+        )
+
         try:
             # train the model for 5 epochs - hopefully won't take long
             history = model.fit(
@@ -67,7 +73,8 @@ class Agent():
                 epochs=5,
                 batch_size=batch_size,
                 validation_data=(self.X_test, self.y_test),
-                verbose=0
+                verbose=0,
+                callbacks=[early_stop]
             )
         except Exception as e:
             print(f"An error occurred during model training: {e}")
