@@ -122,13 +122,14 @@ int clamp_neurons(int neurons, int layer);
 
 //--------------- GA ---------------
 
-void generate_population(Individual* population, int size);
 void send_evaluation_request(int id, Individual ind);
+
+void generate_population(Individual* population, int i);
 void selection(Individual* population, double* fitness_scores, int pop_size,
-  Individual* parents, int num_parents);
-void crossover(Individual* parents, int num_parents, Individual* offspring,
-  int offspring_size);
-void mutation(Individual* offspring, int offspring_size);
+  Individual* parents, int num_parents, int i);
+void crossover(const Individual* parents, int num_parents, Individual* offspring,
+  int i);
+void mutation(Individual* offspring, int i);
 
 //--------------- MAIN ---------------
 
@@ -150,15 +151,15 @@ int main() {
 
   IndividualAccuracy best_individual_accuracy = { .accuracy = -INFINITY };
 
-  generate_population(population, pop_size);
-
   prepare_subprocess();
-
 #pragma omp parallel shared(best_individual_accuracy, population, \
                                 fitness_scores, io_buffer, io_buffer_len, io_buffer_pos, global_agent, agent_running)
   {
   #pragma omp master
     {
+      for (int i = 0; i < pop_size; i++) {
+        generate_population(population, i);
+      }
       for (int generation = 0; generation < num_generations; generation++) {
         printf("\nGeneration %2d/%2d\n", generation + 1, num_generations);
 
@@ -218,15 +219,18 @@ int main() {
           max_fitness, sum_fitness / pop_size,
           best_individual_accuracy.accuracy);
 
-        selection(population, fitness_scores, pop_size, parents, num_parents);
-        crossover(parents, num_parents, offspring, offspring_size);
-        mutation(offspring, offspring_size);
-
         for (int i = 0; i < num_parents; i++) {
-          next_population[i] = parents[i];
+          selection(population, fitness_scores, pop_size, parents, num_parents, i);
         }
-        for (int i = 0; i < offspring_size; i++) {
-          next_population[num_parents + i] = offspring[i];
+
+        for (int i = 0; i < pop_size; i++) {
+          if (i < num_parents) {
+            next_population[i] = parents[i];
+          }
+          else {
+            crossover(parents, num_parents, next_population, i);
+            mutation(next_population, i);
+          }
         }
 
         // reuse buffers, "round robin"
@@ -322,81 +326,72 @@ int read_line_timeout(int fd, char* buffer, size_t max_size) {
 //--------------- GA ---------------
 
 void selection(Individual* population, double* fitness_scores, int pop_size,
-  Individual* parents, int num_parents) {
-  for (int i = 0; i < num_parents; i++) {
-    int idx1 = random_randint(0, pop_size - 1);
-    int idx2 = random_randint(0, pop_size - 1);
+  Individual* parents, int num_parents, int i) {
+  int idx1 = random_randint(0, pop_size - 1);
+  int idx2 = random_randint(0, pop_size - 1);
 
-    if (pop_size <= 1) fatal(UNKNOWN, "selection");
+  if (pop_size <= 1) fatal(UNKNOWN, "selection");
 
-    while (idx1 == idx2) idx2 = random_randint(0, pop_size - 1);
+  while (idx1 == idx2) idx2 = random_randint(0, pop_size - 1);
 
-    if (fitness_scores[idx1] > fitness_scores[idx2]) {
-      parents[i] = population[idx1];
-    }
-    else {
-      parents[i] = population[idx2];
-    }
+  if (fitness_scores[idx1] > fitness_scores[idx2]) {
+    parents[i] = population[idx1];
+  }
+  else {
+    parents[i] = population[idx2];
   }
 }
 
-void crossover(Individual* parents, int num_parents, Individual* offspring,
-  int offspring_size) {
-  for (int i = 0; i < offspring_size; i++) {
-    int p1_idx = random_randint(0, num_parents - 1);
-    int p2_idx = random_randint(0, num_parents - 1);
+void crossover(const Individual* parents, int num_parents, Individual* offspring, int i) {
+  int p1_idx = random_randint(0, num_parents - 1);
+  int p2_idx = random_randint(0, num_parents - 1);
 
-    while (p1_idx == p2_idx && num_parents > 1)
-      p2_idx = random_randint(0, num_parents - 1);
+  while (p1_idx == p2_idx && num_parents > 1)
+    p2_idx = random_randint(0, num_parents - 1);
 
-    Individual p1 = parents[p1_idx];
-    Individual p2 = parents[p2_idx];
-    Individual child;
+  const Individual* p1 = parents + p1_idx;
+  const Individual* p2 = parents + p2_idx;
+  Individual child;
 
-    int cp = random_randint(0, 5);
-    child.layers = (cp > 0) ? p1.layers : p2.layers;
-    child.neurons = (cp > 1) ? p1.neurons : p2.neurons;
-    child.learning_rate = (cp > 2) ? p1.learning_rate : p2.learning_rate;
-    child.batch_size = (cp > 3) ? p1.batch_size : p2.batch_size;
-    child.activation = (cp > 4) ? p1.activation : p2.activation;
+  int cp = random_randint(0, 5);
+  child.layers = (cp > 0) ? p1->layers : p2->layers;
+  child.neurons = (cp > 1) ? p1->neurons : p2->neurons;
+  child.learning_rate = (cp > 2) ? p1->learning_rate : p2->learning_rate;
+  child.batch_size = (cp > 3) ? p1->batch_size : p2->batch_size;
+  child.activation = (cp > 4) ? p1->activation : p2->activation;
 
-    offspring[i] = child;
-  }
+  offspring[i] = child;
 }
 
-void generate_population(Individual* population, int size) {
-  for (int i = 0; i < size; i++) {
-    population[i].layers = random_layers();
-    population[i].neurons = random_neurons(population[i].layers);
-    population[i].learning_rate = random_learning_rate();
-    population[i].batch_size = random_batch_size();
-    population[i].activation = random_activation();
-  }
+void generate_population(Individual* population, int i) {
+  population[i].layers = random_layers();
+  population[i].neurons = random_neurons(population[i].layers);
+  population[i].learning_rate = random_learning_rate();
+  population[i].batch_size = random_batch_size();
+  population[i].activation = random_activation();
 }
 
-void mutation(Individual* offspring, int offspring_size) {
-  for (int i = 0; i < offspring_size; i++) {
-    if ((double)rand() / RAND_MAX < 0.1) {
-      Individual* ind = offspring + i;
-      int mutation_index = random_randint(0, 4);
-      switch (mutation_index) {
-      case 0:
-        ind->layers = random_layers();
-        ind->neurons = clamp_neurons(ind->neurons, ind->layers);
-        break;
-      case 1:
-        ind->neurons = random_neurons(ind->layers);
-        break;
-      case 2:
-        ind->learning_rate = random_learning_rate();
-        break;
-      case 3:
-        ind->batch_size = random_batch_size();
-        break;
-      case 4:
-        ind->activation = random_activation();
-        break;
-      }
+void mutation(Individual* offspring, int i) {
+  if ((double)rand() / RAND_MAX < 0.1) {
+    Individual* ind = offspring + i;
+    int mutation_index = random_randint(0, 4);
+    switch (mutation_index) {
+    case 0:
+      ind->layers = random_layers();
+      ind->neurons = clamp_neurons(ind->neurons, ind->layers);
+      break;
+    case 1:
+      ind->neurons = random_neurons(ind->layers);
+      break;
+    case 2:
+      ind->learning_rate = random_learning_rate();
+      break;
+    case 3:
+      ind->batch_size = random_batch_size();
+      break;
+    case 4:
+      ind->activation = random_activation();
+      break;
     }
   }
 }

@@ -156,8 +156,8 @@ def worker_task(agent, line, print_lock, print_file: TextIO):
         
         with print_lock:
             print(f"{task_id} {accuracy:.17f}", file=print_file)
-            with open(f"{uuid.uuid4()}.txt", '+a') as f:
-                print(f"wrote", file=f, flush=True)
+            # with open(f"{uuid.uuid4()}.txt", '+a') as f:
+            #     print(f"wrote", file=f, flush=True)
 
     except Exception as e:
         with print_lock:
