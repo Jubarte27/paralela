@@ -104,7 +104,7 @@ class Agent:
             history = model.fit(
                 self.X_train,
                 self.y_train,
-                epochs=5,
+                epochs=20,
                 batch_size=individual.batch_size,
                 validation_data=(self.X_test, self.y_test),
                 verbose=0,

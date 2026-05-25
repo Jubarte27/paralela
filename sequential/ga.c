@@ -7,8 +7,10 @@
 #include <subprocess.h>
 
 // Define the structure of an Individual
+// Added 'layers' to match Python's Individual.decode mapping
 typedef struct
 {
+    int layers;
     int neurons;
     double learning_rate;
     int batch_size;
@@ -33,6 +35,7 @@ void generate_population(Individual *population, int size)
     int batch_choices[] = {32, 64, 128};
     for (int i = 0; i < size; i++)
     {
+        population[i].layers = random_randint(1, 4); // 1 to 4 layers
         population[i].neurons = random_randint(32, 256);
         population[i].learning_rate = pow(10, random_uniform(-4.0, -1.0));
         population[i].batch_size = batch_choices[random_randint(0, 2)];
@@ -47,28 +50,18 @@ void ensure_zero(int result, const char *operation) {
     }
 }
 
-// Subprocess call to the Python agent
-double evaluate_fitness(Individual ind)
-{
-    char neurons[10], learning_rate[30], batch_size[10], activation[10];
+double evaluate_fitness(Individual ind, struct subprocess_s *subprocess) {
+    FILE* p_stdin = subprocess_stdin(subprocess);
+    FILE* p_stdout = subprocess_stdout(subprocess);
 
-    sprintf((char * restrict) &neurons, "%d", ind.neurons);
-    sprintf((char * restrict) &learning_rate, "%.17lg", ind.learning_rate);
-    sprintf((char * restrict) &batch_size, "%d", ind.batch_size);
-    sprintf((char * restrict) &activation, "%d", ind.activation);
-
-    const char *command_line[] = {"python3", "agent.py", (const char *) &neurons, (const char *) &learning_rate, (const char *) &batch_size, (const char *) &activation, NULL};
-    struct subprocess_s subprocess;
-    ensure_zero(subprocess_create(command_line, subprocess_option_inherit_environment | subprocess_option_search_user_path, &subprocess), "create");
-
-    int process_return;
-    int result = subprocess_join(&subprocess, &process_return);
-    ensure_zero(result, "subprocess join");
-    ensure_zero(result, "join");
-
-    printf("success: %d\n", result);
-
-    FILE* p_stdout = subprocess_stdout(&subprocess);
+    fprintf(p_stdin, "%d %d %d %.17g %d %d\n", 
+            0, 
+            ind.layers,
+            ind.neurons, 
+            ind.learning_rate, 
+            ind.batch_size, 
+            ind.activation);
+    fflush(p_stdin);
 
     double accuracy = 0.0;
 
@@ -78,33 +71,13 @@ double evaluate_fitness(Individual ind)
         exit(EXIT_FAILURE);
     }
 
-    if (sscanf(string, "%lg", &accuracy) != 1) {
+    if (sscanf(string, "0 %lf", &accuracy) != 1) {
         fprintf(stderr, "Failed to read accuracy from agent: \"%s\"\n", string);
         exit(EXIT_FAILURE);
     }
-
-    ensure_zero(subprocess_destroy(&subprocess), "destroy");
     
     return accuracy;
 }
-
-void select_random_distinct(int *arr, int n, int k) {
-    if (k > n) return; // Cannot pick more elements than exist
-
-    for (int i = 0; i < k; i++) {
-        // Pick a random index from the remaining pool
-        int j = i + random_randint(0, n - 1);
-        
-        // Swap selected element arr[j] with current position arr[i]
-        int temp = arr[i];
-        arr[i] = arr[j];
-        arr[j] = temp;
-
-        // arr[i] now contains a unique random element
-        printf("%d ", arr[i]);
-    }
-}
-
 
 // Step 3: Selection (Tournament selection of size 2)
 void selection(Individual *population, double *fitness_scores, int pop_size, Individual *parents, int num_parents)
@@ -148,14 +121,14 @@ void crossover(Individual *parents, int num_parents, Individual *offspring, int 
         Individual p2 = parents[p2_idx];
         Individual child;
 
-        // Random crossover point between 1 and 3 (inclusive)
-        int cp = random_randint(1, 3);
+        // Random crossover point between 1 and 4 (inclusive) for 5 genes
+        int cp = random_randint(1, 4);
 
-        // Mimicking Python slicing behavior: parent1[:cp] + parent2[cp:]
-        child.neurons = (cp > 0) ? p1.neurons : p2.neurons;
-        child.learning_rate = (cp > 1) ? p1.learning_rate : p2.learning_rate;
-        child.batch_size = (cp > 2) ? p1.batch_size : p2.batch_size;
-        child.activation = (cp > 3) ? p1.activation : p2.activation;
+        child.layers        = (cp > 0) ? p1.layers : p2.layers;
+        child.neurons       = (cp > 1) ? p1.neurons : p2.neurons;
+        child.learning_rate = (cp > 2) ? p1.learning_rate : p2.learning_rate;
+        child.batch_size    = (cp > 3) ? p1.batch_size : p2.batch_size;
+        child.activation    = (cp > 4) ? p1.activation : p2.activation;
 
         offspring[i] = child;
     }
@@ -167,22 +140,26 @@ void mutation(Individual *offspring, int offspring_size)
     int batch_choices[] = {32, 64, 128};
     for (int i = 0; i < offspring_size; i++)
     {
-        if ((double)rand() / RAND_MAX < 0.1)
-        { // 10% mutation chance
-            int mutation_index = random_randint(0, 3);
+        if ((double)rand() / RAND_MAX < 0.1) // 10% mutation chance
+        { 
+            int mutation_index = random_randint(0, 4);
             if (mutation_index == 0)
             {
-                offspring[i].neurons = random_randint(32, 256);
+                offspring[i].layers = random_randint(1, 4);
             }
             else if (mutation_index == 1)
             {
-                offspring[i].learning_rate = pow(10, random_uniform(-4.0, -1.0));
+                offspring[i].neurons = random_randint(32, 256);
             }
             else if (mutation_index == 2)
             {
-                offspring[i].batch_size = batch_choices[random_randint(0, 2)];
+                offspring[i].learning_rate = pow(10, random_uniform(-4.0, -1.0));
             }
             else if (mutation_index == 3)
+            {
+                offspring[i].batch_size = batch_choices[random_randint(0, 2)];
+            }
+            else if (mutation_index == 4)
             {
                 offspring[i].activation = random_randint(0, 2);
             }
@@ -206,16 +183,24 @@ int main()
     Individual *parents = malloc(num_parents * sizeof(Individual));
     Individual *offspring = malloc(offspring_size * sizeof(Individual));
     Individual *next_population = malloc(population_size * sizeof(Individual));
-    double *fitness_scores = malloc(population_size * sizeof(double));
+    double *fitness_scores = calloc(population_size, sizeof(double));
 
     Individual best_individual;
     double best_accuracy = -1.0;
 
     generate_population(population, population_size);
 
+    // Start Python ONCE ----
+    const char *command_line[] = {"python3", "agent.py", "8", NULL};
+    struct subprocess_s subprocess;
+    ensure_zero(subprocess_create(command_line, subprocess_option_inherit_environment | subprocess_option_search_user_path, &subprocess), "create");
+
+    FILE* p_stdin = subprocess_stdin(&subprocess);
+    FILE* p_stdout = subprocess_stdout(&subprocess);
+
     for (int generation = 0; generation < num_generations; generation++)
     {
-        printf("\nGeneration %d\n", generation);
+        printf("\nGeneration %d\n", generation + 1);
 
         double max_fitness = -1.0;
         double sum_fitness = 0.0;
@@ -225,7 +210,7 @@ int main()
         {
             printf("Evaluating Individual %d/%d...\n", i + 1, population_size);
 
-            double accuracy = evaluate_fitness(population[i]);
+            double accuracy = evaluate_fitness(population[i], &subprocess);
             fitness_scores[i] = accuracy;
 
             printf("Validation Accuracy: %.17g\n", accuracy);
@@ -250,14 +235,8 @@ int main()
         mutation(offspring, offspring_size);
 
         // Construct next generation
-        for (int i = 0; i < num_parents; i++)
-        {
-            next_population[i] = parents[i];
-        }
-        for (int i = 0; i < offspring_size; i++)
-        {
-            next_population[num_parents + i] = offspring[i];
-        }
+        for (int i = 0; i < num_parents; i++) { next_population[i] = parents[i]; }
+        for (int i = 0; i < offspring_size; i++) { next_population[num_parents + i] = offspring[i]; }
 
         // Swap pointers for the next generation
         Individual *temp = population;
@@ -267,11 +246,18 @@ int main()
 
     printf("\n=== Optimization Complete ===\n");
     printf("Best Accuracy: %.4f\n", best_accuracy);
-    printf("Best Hyperparameters: Neurons=%d, LR=%lf, Batch=%d, Act=%d\n",
-           best_individual.neurons, best_individual.learning_rate,
+    printf("Best Hyperparameters: Layers=%d, Neurons=%d, LR=%lf, Batch=%d, Act=%d\n",
+           best_individual.layers, best_individual.neurons, best_individual.learning_rate,
            best_individual.batch_size, best_individual.activation);
 
-    // Free memory
+    // ---- Kill Python Safely ----
+    fprintf(p_stdin, "exit\n");
+    fflush(p_stdin);
+
+    int process_return;
+    ensure_zero(subprocess_join(&subprocess, &process_return), "join");
+    ensure_zero(subprocess_destroy(&subprocess), "destroy");
+
     free(population);
     free(parents);
     free(offspring);
