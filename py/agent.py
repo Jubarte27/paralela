@@ -1,10 +1,10 @@
+from enum import Enum
 import os
 import sys
 import random
 import time
 import threading
 from dataclasses import dataclass
-from io import TextIOWrapper
 from contextlib import redirect_stdout
 from concurrent.futures import ProcessPoolExecutor
 
@@ -20,23 +20,34 @@ if SINGLE_THREAD:
 
 import tensorflow as tf
 
+class NeuronPattern(Enum):
+    HALVE = "halve"
+    SAME = "same"
 
 @dataclass
 class Individual:
     layers: int
     neurons: int
+    neuron_pattern: NeuronPattern
     learning_rate: float
     batch_size: int
     activation: int
+    decay: int
 
     @staticmethod
     def decode(string: str):
         args = string.split(" ")
-        layers = int(args[0])
-        neurons = int(args[1])
-        learning_rate = float(args[2])
-        batch_size = int(args[3])
-        activation = int(args[4])
+        i = 0
+        layers = int(args[i])
+        i += 1
+        neurons = int(args[i])
+        i += 1
+        learning_rate = float(args[i])
+        i += 1
+        batch_size = int(args[i])
+        i += 1
+        activation = int(args[i])
+        i += 1
 
         return Individual(layers, neurons, learning_rate, batch_size, activation)
 
@@ -72,43 +83,69 @@ class Agent:
         
         self.shape = X_test.shape()[1:]
 
+    
+    @staticmethod
+    def conv_layer(filters, kernel_size=(3, 3)):
+        return (
+            tf.keras.layers.Conv2D(filters, kernel_size, activation='gelu', padding='same'),
+            tf.keras.layers.GaussianDropout(0.1),
+            tf.keras.layers.Conv2D(filters, kernel_size, activation='gelu', padding='same'),
+
+            tf.keras.layers.MaxPooling2D(),
+            tf.keras.layers.GaussianDropout(0.25)
+        )
+    
+    @staticmethod
+    def dense_layer(neuron_pattern, layers, neurons, activation):
+        if neuron_pattern == NeuronPattern.HALVE:
+            return [tf.keras.layers.Dense(neurons // (2**i), activation=activation) for i in range(layers)]
+        
+        if neuron_pattern == NeuronPattern.SAME:
+            return [tf.keras.layers.Dense(neurons, activation=activation) for _ in range(layers)]
+        
+        raise KeyError(f"Invalid neuron_pattern: {neuron_pattern}")
+    
+    @staticmethod
+    def optimizer(name, learning_rate, decay):
+        if decay > 0:
+            rate = tf.keras.optimizers.schedules.ExponentialDecay(
+                learning_rate,
+                decay_steps=10000,
+                decay_rate=0.96,
+                staircase=True
+            )
+        else:
+            rate = learning_rate
+
+        if name == "adam":
+            return tf.keras.optimizers.Adam(learning_rate=rate)
+        if name  == "adamw":
+            return tf.keras.optimizers.AdamW(learning_rate=rate)
+        
+        raise KeyError(f"Invalid optimizer: {name}")
+
+
     def fitness_function(self, individual: Individual):
         activation = ["relu", "tanh", "sigmoid"][individual.activation]
 
-        # build the model
-        model = tf.keras.models.Sequential()
-        model.add(tf.keras.layers.Input(shape=self.shape))
+        model = tf.keras.models.Sequential([
+            tf.keras.layers.Input(shape=self.shape),
+            *Agent.conv_layer(32),
+            *Agent.dense_layer(individual.neuron_patter, individual.layers, individual.neurons, activation),
+            tf.keras.layers.Dense(10, activation="softmax")
+        ])
+        
+        optimizer = Agent.optimizer(individual.optimizer, individual.learning_rate, individual.decay)
+        model.compile( optimizer=optimizer, loss="categorical_crossentropy", metrics=["accuracy"])
 
-        current_neurons = individual.neurons
-        for _ in range(individual.layers):
-            model.add(tf.keras.layers.Dense(current_neurons, activation=activation))
-            if current_neurons <= 4:
-                pass
-            elif current_neurons <= 8:
-                current_neurons -= 2
-            elif current_neurons <= 16:
-                current_neurons -= 4
-            else:
-                current_neurons = current_neurons // 2
-
-        model.add(tf.keras.layers.Dense(10, activation="softmax"))
-
-        optimizer = tf.keras.optimizers.Adam(learning_rate=individual.learning_rate)
-        model.compile(
-            optimizer=optimizer, loss="categorical_crossentropy", metrics=["accuracy"]
-        )
-
-        early_stop = tf.keras.callbacks.EarlyStopping(
-            monitor="val_accuracy", patience=2, restore_best_weights=True
-        )
-
-        timeout = TimeoutCallback(timeout_seconds=60)  # 1-minute limit
+        early_stop = tf.keras.callbacks.EarlyStopping(monitor="val_accuracy", patience=2, restore_best_weights=True)
+        timeout = TimeoutCallback(timeout_seconds=5*60)  # 5m
 
         try:
             history = model.fit(
                 self.X_train,
                 self.y_train,
-                epochs=20,
+                epochs=10,
                 batch_size=individual.batch_size,
                 validation_data=(self.X_test, self.y_test),
                 verbose=0,
