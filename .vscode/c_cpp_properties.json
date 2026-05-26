@@ -3,14 +3,16 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/parallel**"
+                "${workspaceFolder}/parallel",
+                "${workspaceFolder}/sequential",
+                "${workspaceFolder}/common"
             ],
             "defines": [
                 "_POSIX_C_SOURCE=202405L"
             ],
             "compilerPath": "/usr/bin/gcc",
             "cStandard": "c23",
-            "cppStandard": "c++26",
+            "cppStandard": "c++23",
             "intelliSenseMode": "linux-gcc-x64"
         }
     ],

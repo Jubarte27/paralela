@@ -3,6 +3,7 @@ HERE=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 
 PARALLEL="$HERE/parallel"
 SEQUENTIAL="$HERE/sequential"
+COMMON="$HERE/common"
 VENV="$HERE/.venv"
 
 case "$1" in
@@ -17,9 +18,14 @@ case "$1" in
         ;;
 esac
 
-if ! gcc -g -rdynamic -O3 -fopenmp "$TARGET/ga.c" -I"$TARGET" -lm -o "$TARGET/ga"; then
+SIZE=$2
+THREADS=$3
+
+if ! gcc -g -rdynamic -O3 -fopenmp "$TARGET/ga.c" -I"$TARGET" -I"$COMMON" -lm -o "$TARGET/ga"; then
     echo "Failed to compile ga.c"
     exit 1
 fi
 
-source "$VENV/bin/activate" && cd "$HERE" && "$TARGET/ga"
+source "$VENV/bin/activate" || exit 1
+cd "$HERE" || exit 1
+"$TARGET/ga" "$SIZE" "$THREADS"

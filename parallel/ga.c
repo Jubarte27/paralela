@@ -15,22 +15,11 @@
 #include <time.h>
 #include <unistd.h>
 
-#define max(a, b)           \
-  ({                        \
-    __typeof__(a) _a = (a); \
-    __typeof__(b) _b = (b); \
-    _a > _b ? _a : _b;      \
-  })
-
-#define min(a, b)           \
-  ({                        \
-    __typeof__(a) _a = (a); \
-    __typeof__(b) _b = (b); \
-    _a < _b ? _a : _b;      \
-  })
+#include "rand.h"
+#include "types.h"
+#include "args.h"
 
 const char EXIT[] = "exit\n";
-static int OUR_THREADS;
 
 typedef enum {
   UNKNOWN,
@@ -44,53 +33,8 @@ typedef enum {
   READ_FILDES_TIMEOUT
 } error_code_t;
 
-typedef struct {
-  int layers;
-  int neurons;
-  double learning_rate;
-  int batch_size;
-  int activation;
-} Individual;
-
-typedef struct {
-  Individual individual;
-  double accuracy;
-} IndividualAccuracy;
-
-typedef struct double_range_t {
-  double min;
-  double max;
-} double_range_t;
-
-typedef struct int_range_t {
-  int min;
-  int max;
-} int_range_t;
-
-typedef struct limits_t {
-  int_range_t layers;
-  double_range_t learning_rate;
-  int_range_t activation;
-} limits_t;
-
 #define TIMEOUT_MS (5 * 60 * 1000)  // 2m
 #define SMALL_TIMEOUT_MS (500)
-
-const limits_t default_limits = {
-    .layers = {1, 3},
-    .learning_rate = {-4.0, -1.0},
-    .activation = {0, 2},
-};
-const int_range_t default_neuron_limits[] = { {32, 256}, {16, 128}, {8, 64} };
-const int default_batch_choices[] = { 32, 64, 128 };
-
-const limits_t limits = default_limits;
-
-const int_range_t* neuron_limits = default_neuron_limits;
-int neuron_limits_len = sizeof(default_neuron_limits);
-
-const int* batch_choices = default_batch_choices;
-int batch_choices_len = sizeof(default_batch_choices);
 
 struct subprocess_s global_agent;
 bool agent_running = false;
@@ -110,47 +54,31 @@ void prepare_subprocess();
 int subprocess_join_timeout(pid_t child_pid, int timeout_ms, int* exit_status);
 int read_line_timeout(int fd, char* buffer, size_t max_size);
 
-//--------------- RANDS ---------------
-
-double random_between(double min, double max);  // inclusive
-int random_randint(int min, int max);           // inclusive
-int random_choice(const int* choices, int num_choices);
-int random_layers();
-int random_neurons(int layers);
-double random_learning_rate();
-int random_batch_size();
-int random_activation();
-int clamp_neurons(int neurons, int layer);
-
 //--------------- GA ---------------
 
 void send_evaluation_request(int id, Individual ind);
 
 void generate_population(Individual* population, int i);
 void selection(Individual* population, double* fitness_scores, int pop_size,
-  Individual* parents, int num_parents, int i);
+  Individual* parents, int i);
 void crossover(const Individual* parents, int num_parents, Individual* offspring,
   int i);
 void mutation(Individual* offspring, int i);
 
-//--------------- MAIN ---------------
+int main(int argc, char* argv[]) {
+  read_args(argc, argv);
+  apply_args();
 
-int main() {
   srand((unsigned int)time(NULL));
-  OUR_THREADS = max(omp_get_num_procs() / 2, 1);
-  omp_set_num_threads(OUR_THREADS);
-  printf("Using %d threads\n", OUR_THREADS);
 
-  int num_generations = 10;
-  int pop_size = 10;
-  int num_parents = pop_size / 2;
-  int offspring_size = pop_size - num_parents;
+  int offspring_size = POP_SIZE - NUM_PARENTS;
 
-  Individual* population = malloc(pop_size * sizeof(Individual));
-  Individual* next_population = malloc(pop_size * sizeof(Individual));
-  Individual* parents = malloc(num_parents * sizeof(Individual));
+
+  Individual* population = malloc(POP_SIZE * sizeof(Individual));
+  Individual* next_population = malloc(POP_SIZE * sizeof(Individual));
+  Individual* parents = malloc(NUM_PARENTS * sizeof(Individual));
   Individual* offspring = malloc(offspring_size * sizeof(Individual));
-  double* fitness_scores = malloc(pop_size * sizeof(double));
+  double* fitness_scores = malloc(POP_SIZE * sizeof(double));
 
   IndividualAccuracy best_individual_accuracy = { .accuracy = -INFINITY };
 
@@ -160,20 +88,20 @@ int main() {
   {
   #pragma omp master
     {
-      for (int i = 0; i < pop_size; i++) {
+      for (int i = 0; i < POP_SIZE; i++) {
         generate_population(population, i);
       }
-      for (int generation = 0; generation < num_generations; generation++) {
-        printf("\nGeneration %2d/%2d\n", generation + 1, num_generations);
+      for (int generation = 0; generation < NUM_GENERATIONS; generation++) {
+        printf("\nGeneration %2d/%2d\n", generation + 1, NUM_GENERATIONS);
 
       #pragma omp parallel for schedule(dynamic)
-        for (int i = 0; i < pop_size; i++) {
+        for (int i = 0; i < POP_SIZE; i++) {
           send_evaluation_request(i, population[i]);
           printf("?");
           fflush(stdout);
         }
 
-        for (int i = 0; i < pop_size; i++) {
+        for (int i = 0; i < POP_SIZE; i++) {
           char* task_buffer = malloc(256);
           if (read_line_timeout(global_agent.stdout_fd, task_buffer, 256) == 1) {
           #pragma omp task firstprivate(task_buffer) shared(fitness_scores)
@@ -204,8 +132,8 @@ int main() {
         printf("\n");
         double max_fitness = -INFINITY;
         double sum_fitness = 0.0;
-        for (int i = 0; i < pop_size; i++) {
-          printf("%2d/%2d.acc=%.17f\n", i + 1, pop_size, fitness_scores[i]);
+        for (int i = 0; i < POP_SIZE; i++) {
+          printf("%2d/%2d.acc=%.17f\n", i + 1, POP_SIZE, fitness_scores[i]);
           double score = fitness_scores[i];
           sum_fitness += score;
           if (score > max_fitness) max_fitness = score;
@@ -219,20 +147,22 @@ int main() {
         printf(
           "Best Gen Accuracy: %.17f | Avg Gen Accuracy: %.17f | Best so far: "
           "%.17f\n",
-          max_fitness, sum_fitness / pop_size,
+          max_fitness, sum_fitness / POP_SIZE,
           best_individual_accuracy.accuracy);
 
-        for (int i = 0; i < num_parents; i++) {
-          selection(population, fitness_scores, pop_size, parents, num_parents, i);
+        for (int i = 0; i < NUM_PARENTS; i++) {
+          // someone may end up procreating with themselves
+          selection(population, fitness_scores, POP_SIZE, parents, i);
         }
 
-        for (int i = 0; i < pop_size; i++) {
-          if (i < num_parents) {
+      #pragma omp parallel for schedule(dynamic)
+        for (int i = 0; i < POP_SIZE; i++) {
+          if (i < NUM_PARENTS) {
             next_population[i] = parents[i];
           }
           else {
-            crossover(parents, num_parents, next_population, i);
-            mutation(next_population, i);
+            crossover(parents, NUM_PARENTS, next_population, i); // set next_population[i]
+            mutation(next_population, i); // mutate next_population[i]
           }
         }
 
@@ -263,8 +193,6 @@ int main() {
 
   return 0;
 }
-
-//--------------- COMMUNICATION ---------------
 
 void send_evaluation_request(int id, Individual ind) {
   if (!agent_running) fatal(UNKNOWN, "Agent is dead.");
@@ -329,7 +257,7 @@ int read_line_timeout(int fd, char* buffer, size_t max_size) {
 //--------------- GA ---------------
 
 void selection(Individual* population, double* fitness_scores, int pop_size,
-  Individual* parents, int num_parents, int i) {
+  Individual* parents, int i) {
   int idx1 = random_randint(0, pop_size - 1);
   int idx2 = random_randint(0, pop_size - 1);
 
@@ -472,46 +400,3 @@ void fatal(error_code_t err, const char* where) {
 }
 
 void cleanup(error_code_t err, const char* where) { clean_process(err, where); }
-
-//--------------- MATH UTILS ---------------
-
-inline double random_double() { return ((double)rand() / (double)RAND_MAX); }
-double random_between(double min, double max) {
-  return min + random_double() * (max - min);
-}
-int random_randint(int min, int max) { return min + rand() % (max - min + 1); }
-int random_choice(const int* choices, int num_choices) {
-  return choices[random_randint(0, num_choices - 1)];
-}
-
-double random_learning_rate() {
-  return pow(
-    10, random_between(limits.learning_rate.min, limits.learning_rate.max));
-}
-int random_layers() {
-  return random_randint(limits.layers.min, limits.layers.max);
-}
-int random_batch_size() {
-  return random_choice(batch_choices, batch_choices_len);
-}
-int random_activation() {
-  return random_randint(limits.activation.min, limits.activation.max);
-}
-
-int random_neurons(int layers) {
-  if (layers > limits.layers.max || layers < limits.layers.min) {
-    fatal(UNKNOWN, "layers");
-  }
-
-  int i = layers - limits.layers.min;
-  return random_randint(neuron_limits[i].min, neuron_limits[i].max);
-}
-
-int clamp_neurons(int neurons, int layer) {
-  if (layer > limits.layers.max || layer < limits.layers.min) {
-    fatal(UNKNOWN, "layer");
-  }
-  int i = layer - limits.layers.min;
-
-  return min(max(neurons, neuron_limits[i].min), neuron_limits[i].max);
-}
