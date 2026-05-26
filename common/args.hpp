@@ -1,70 +1,109 @@
 #ifndef GA_ARGS_H
 #define GA_ARGS_H
 
+#include <initializer_list>
 #include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-typedef enum {
-    SMALL,
-    LARGE
-} dataset_size_t;
+#include <string>
+#include <unordered_map>
 
+template <typename K, typename V>
+std::unordered_map<V, K> reversed(const std::unordered_map<K, V> &original) {
+  std::unordered_multimap<V, K> flipped;
+  for (const auto &[key, value] : original)
+    flipped.insert({value, key});
+  return flipped;
+}
+
+template <typename T> struct converter_t {
+  std::unordered_map<T, std::string> from_type;
+  std::unordered_map<std::string, T> to_type;
+
+  converter_t(std::initializer_list<std::pair<T, std::string>> type_to_param)
+      : from_type(type_to_param), to_type(reversed(from_type)) {}
+  converter_t(std::initializer_list<std::pair<std::string, T>> param_to_type)
+      : to_type(param_to_type), from_type(reversed(to_type)) {}
+
+  std::string &operator[](const T &k) const { return from_type.at(k); }
+  T &operator[](const std::string &k) const { return to_type.at(k); }
+
+  bool contains(const T &k) const { return from_type.contains(k); }
+  bool contains(const std::string &k) const { return to_type.contains(k); }
+};
+
+// will use half the trainig set for fasion_mnist and full for cifar_10
+typedef enum { MNIST, CIFAR } dataset_t;
+typedef enum { HALVE, SAME } layer_pattern_t;
+typedef enum { ADAM, ADAMW } optimizer_t;
+
+const converter_t<dataset_t> DATASETS{{"fashion", MNIST}, {"cifar10", CIFAR}};
+const converter_t<layer_pattern_t> PATTERNS{{"halve", HALVE}, {"same", SAME}};
+const converter_t<optimizer_t> OPTIMIZERS{{"adam", ADAM}, {"adamw", ADAMW}};
+
+//for python
 int OUR_THREADS;
-dataset_size_t DATASET_SIZE;
+dataset_t DATASET;
+
+//for ga
 int NUM_GENERATIONS;
 int POP_SIZE;
 int NUM_PARENTS;
 
-
 void reset_args() {
-    OUR_THREADS = 4;
-    DATASET_SIZE = LARGE;
-    NUM_GENERATIONS = 10;
-    POP_SIZE = 10;
-    NUM_PARENTS = POP_SIZE / 2;
+  OUR_THREADS = 4;
+  DATASET = MNIST;
+  NUM_GENERATIONS = 10;
+  POP_SIZE = 10;
+  NUM_PARENTS = POP_SIZE / 2;
 }
 
 void apply_args() {
-    omp_set_num_threads(OUR_THREADS);
-    printf("Using: %d threads, %s dataset, %d generations, %d population size, %d parents per generation\n", OUR_THREADS, DATASET_SIZE == SMALL ? "small" : "large", NUM_GENERATIONS, POP_SIZE, NUM_PARENTS);
+  omp_set_num_threads(OUR_THREADS);
+  printf("Using: %d threads, %s dataset, %d generations, %d population size, "
+         "%d parents per generation\n",
+         OUR_THREADS, DATASETS[DATASET], NUM_GENERATIONS, POP_SIZE,
+         NUM_PARENTS);
 }
 
-void fail_arg(char* arg, int index) {
-    fprintf(stderr, "Parameter %d is invalid: %s", index, arg);
-    exit(1);
+void fail_arg(char *arg, int index) {
+  fprintf(stderr, "Parameter %d is invalid: %s", index, arg);
+  exit(1);
 }
 
-int read_positive_int(char* arg, int index) {
-    int number_read = (int)strtol(arg, NULL, 0);
-    if (number_read < 1) fail_arg(arg, index);
-    return number_read;
+int read_positive_int(char *arg, int index) {
+  int number_read = (int)strtol(arg, NULL, 0);
+  if (number_read < 1)
+    fail_arg(arg, index);
+  return number_read;
 }
 
-void read_args(int argc, char* argv[]) {
-    reset_args();
-    char** arg = argv;
-    char** end = argv + argc;
-    int i = 1;
+#define next_arg(i, argc) do { if ((i) >= (argc)) return; (i)++; (arg)++; } while (0)
+#define read_i(dest, i, argc) do { if (strlen(*(arg)) > 0) (dest) = read_positive_int(*(arg), (i)); } while (0)
+void read_args(int argc, char *argv[]) {
+  reset_args();
+  char **arg = argv;
+  char **end = argv + argc;
+  int i = 1;
 
-    if (i >= argc) return; i++; arg++; // ignore file name
-    if (strlen(*arg) > 0) {
-        if (strcmp(*arg, "small") == 0) DATASET_SIZE = SMALL;
-        else if (strcmp(*arg, "large") == 0) DATASET_SIZE = LARGE;
-        else fail_arg(*arg, i);
-    }
+  next_arg(i, argc); // ignore file name
+  if (strlen(*arg) > 0 && (DATASETS.contains(*arg))) DATASET = DATASETS[*arg];
+  else fail_arg(*arg, i);
 
-    if (i >= argc) return; i++; arg++;
-    if (strlen(*arg) > 0 && (OUR_THREADS = read_positive_int(*arg, i)) > omp_get_num_procs()) fail_arg(*arg, i);
+  next_arg(i, argc);
+  read_i(OUR_THREADS, i, argc);
+  if (OUR_THREADS > omp_get_num_procs()) fail_arg(*arg, i);
 
-    if (i >= argc) return; i++; arg++;
-    if (strlen(*arg) > 0) NUM_GENERATIONS = read_positive_int(*arg, i);
+  next_arg(i, argc);
+  read_i(NUM_GENERATIONS, i, argc);
 
-    if (i >= argc) return; i++; arg++;
-    if (strlen(*arg) > 0) POP_SIZE = read_positive_int(*arg, i);
+  next_arg(i, argc);
+  read_i(POP_SIZE, i, argc);
 
-    if (i >= argc) return; i++; arg++;
-    if (strlen(*arg) > 0 && (NUM_PARENTS = read_positive_int(*arg, i)) > POP_SIZE) fail_arg(*arg, i);
+  next_arg(i, argc);
+  read_i(NUM_PARENTS, i, argc);
+  if (NUM_PARENTS > POP_SIZE) fail_arg(*arg, i);
 }
 
-#endif //GA_ARGS_H
+#endif // GA_ARGS_H

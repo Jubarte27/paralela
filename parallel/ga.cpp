@@ -15,9 +15,9 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "types.hpp"
-#include "rand.hpp"
 #include "args.hpp"
+#include "rand.hpp"
+#include "types.hpp"
 
 const char EXIT[] = "exit\n";
 
@@ -340,7 +340,7 @@ void prepare_subprocess() {
   char n_workers[4];
   snprintf(n_workers, sizeof(n_workers), "%d", OUR_THREADS);
   const char *command_line[] = {"python3", "-u",      "py/agent.py",
-                                "true",    n_workers, NULL};
+                                "true", DATASETS[DATASET].data(),    n_workers, NULL};
   if (subprocess_create(command_line,
                         subprocess_option_inherit_environment |
                             subprocess_option_search_user_path |

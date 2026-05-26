@@ -69,13 +69,15 @@ class Agent:
         self.y_train = y_train
         self.X_test = X_test
         self.y_test = y_test
+        
+        self.shape = X_test.shape()[1:]
 
     def fitness_function(self, individual: Individual):
         activation = ["relu", "tanh", "sigmoid"][individual.activation]
 
         # build the model
         model = tf.keras.models.Sequential()
-        model.add(tf.keras.layers.Input(shape=(784,)))
+        model.add(tf.keras.layers.Input(shape=self.shape))
 
         current_neurons = individual.neurons
         for _ in range(individual.layers):
@@ -149,31 +151,37 @@ def worker_task(line: str) -> str:
     except Exception as e:
         return f"{task_id} -inf"
 
+SMALL_DATASETS = ["fashion"]
 
-def load_and_preprocess_data():
-    """Loads and preprocesses the dataset once for the main process."""
-    (X_train, y_train), (X_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
+def load_and_preprocess_data(dataset="cifar10"):
+    if dataset == "fashion":
+        (X_train, y_train), (X_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
+        # reshape data
+        X_train = X_train.reshape(-1, 28 * 28)
+        X_test = X_test.reshape(-1, 28 * 28)
+    elif dataset == "cifar10":
+        (X_train, y_train), (X_test, y_test) = tf.keras.datasets.cifar10.load_data()
+        # reshape data
+        X_train = X_train.reshape(-1, 32 * 32, 3)
+        X_test = X_test.reshape(-1, 32 * 32, 3)
+    else:
+        raise KeyError(f"Invalid dataset: {dataset}")
 
-    # normalize data
     X_train = X_train / 255.0
     X_test = X_test / 255.0
 
-    # reshape data
-    X_train = X_train.reshape(-1, 28 * 28)
-    X_test = X_test.reshape(-1, 28 * 28)
-
-    # convert labels to categorical
     y_train = tf.keras.utils.to_categorical(y_train, 10)
     y_test = tf.keras.utils.to_categorical(y_test, 10)
 
-    subset = 10000
-    X_train = X_train[:subset]
-    y_train = y_train[:subset]
+    if dataset in SMALL_DATASETS:
+        subset = 10000
+        X_train = X_train[:subset]
+        y_train = y_train[:subset]
 
     return X_train, y_train, X_test, y_test
 
 
-def main(max_workers=8):
+def main(max_workers=8, dataset="cifar10"):
     print_lock = threading.Lock()
 
     def output_result(future):
@@ -182,7 +190,7 @@ def main(max_workers=8):
         with print_lock:
             print(result, flush=True)
 
-    X_train, y_train, X_test, y_test = load_and_preprocess_data()
+    X_train, y_train, X_test, y_test = load_and_preprocess_data(dataset)
 
     with ProcessPoolExecutor(
         max_workers=max_workers,
@@ -212,6 +220,11 @@ def main(max_workers=8):
                 break
 
 
+def read_arg(i: int, *, default: str):
+    return sys.argv[i] if len(sys.argv) >= i + 1 else default
+
+
 if __name__ == "__main__":
-    max_workers = int(sys.argv[2]) if len(sys.argv) >= 3 else 8
-    main(max_workers)
+    max_workers = int(read_arg(2, default="8"))
+    dataset = read_arg(3, default="cifar10")
+    main(max_workers, dataset)
