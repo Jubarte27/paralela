@@ -21,8 +21,8 @@ esac
 SIZE=$2
 THREADS=$3
 
-if ! gcc -g -rdynamic -O3 -fopenmp "$TARGET/ga.c" -I"$TARGET" -I"$COMMON" -lm -o "$TARGET/ga"; then
-    echo "Failed to compile ga.c"
+if ! g++ -g -rdynamic -O3 -fopenmp "$TARGET/ga.cpp" -I"$TARGET" -I"$COMMON" -lm -o "$TARGET/ga"; then
+    echo "Failed to compile ga.cpp"
     exit 1
 fi
 

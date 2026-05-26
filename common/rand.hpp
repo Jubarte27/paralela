@@ -3,7 +3,7 @@
 
 #include <stdlib.h>
 #include <math.h>
-#include "types.h"
+#include "types.hpp"
 
 const limits_t default_limits = {
     .layers = {1, 3},
