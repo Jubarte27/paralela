@@ -1,33 +1,50 @@
 #ifndef GA_TYPES_H
 #define GA_TYPES_H
 
-typedef struct {
+struct Individual {
+  int activation;
   int layers;
   int neurons;
-  double learning_rate;
+  layer_pattern_t layer_pattern;
+  float learning_rate;
+  float decay;
+  optimizer_t optimizer;
   int batch_size;
-  int activation;
-} Individual;
+};
 
-typedef struct {
+struct IndividualAccuracy {
   Individual individual;
   double accuracy;
-} IndividualAccuracy;
+};
 
-typedef struct double_range_t {
+struct double_range_t {
   double min;
   double max;
-} double_range_t;
+};
 
-typedef struct int_range_t {
+struct int_range_t {
   int min;
   int max;
-} int_range_t;
+};
 
-typedef struct limits_t {
+struct limits_t {
+  int_range_t activation;
   int_range_t layers;
   double_range_t learning_rate;
-  int_range_t activation;
-} limits_t;
+  double_range_t decay;
+};
+
+enum class error_code_t {
+  UNKNOWN,
+  SUCCESS,
+  TERMINATE,
+  DESTROY,
+  READ_FILDES,
+  READ_STD,
+  CREATE,
+  WRITE_FILDES,
+  READ_FILDES_TIMEOUT
+};
+
 
 #endif // GA_TYPES_H

@@ -7,11 +7,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <string>
+#include <vector>
 #include <unordered_map>
 
 template <typename K, typename V>
 std::unordered_map<V, K> reversed(const std::unordered_map<K, V> &original) {
-  std::unordered_multimap<V, K> flipped;
+  std::unordered_map<V, K> flipped;
   for (const auto &[key, value] : original)
     flipped.insert({value, key});
   return flipped;
@@ -20,25 +21,40 @@ std::unordered_map<V, K> reversed(const std::unordered_map<K, V> &original) {
 template <typename T> struct converter_t {
   std::unordered_map<T, std::string> from_type;
   std::unordered_map<std::string, T> to_type;
+  std::vector<T> original;
 
   converter_t(std::initializer_list<std::pair<T, std::string>> type_to_param)
-      : from_type(type_to_param), to_type(reversed(from_type)) {}
+      : from_type(type_to_param.begin(), type_to_param.end()) {
+        to_type = reversed(from_type);
+        original = std::vector<T>();
+        original.reserve(type_to_param.size());
+        for (const std::pair<T, std::string>& par : type_to_param) {
+          original.emplace_back(par.first);
+        }
+      }
   converter_t(std::initializer_list<std::pair<std::string, T>> param_to_type)
-      : to_type(param_to_type), from_type(reversed(to_type)) {}
+      : to_type(param_to_type.begin(), param_to_type.end()) {
+        from_type = reversed(to_type);
+        original = std::vector<T>();
+        original.reserve(param_to_type.size());
+        for (const std::pair<std::string, T>& par : param_to_type) {
+          original.emplace_back(par.second);
+        }
+      }
 
-  std::string &operator[](const T &k) const { return from_type.at(k); }
-  T &operator[](const std::string &k) const { return to_type.at(k); }
+  const std::string &operator[](const T &k) const { return from_type.at(k); }
+  const T &operator[](const std::string &k) const { return to_type.at(k); }
 
   bool contains(const T &k) const { return from_type.contains(k); }
   bool contains(const std::string &k) const { return to_type.contains(k); }
 };
 
 // will use half the trainig set for fasion_mnist and full for cifar_10
-typedef enum { MNIST, CIFAR } dataset_t;
+typedef enum { MNIST, MNIST_SMALL } dataset_t;
 typedef enum { HALVE, SAME } layer_pattern_t;
 typedef enum { ADAM, ADAMW } optimizer_t;
 
-const converter_t<dataset_t> DATASETS{{"fashion", MNIST}, {"cifar10", CIFAR}};
+const converter_t<dataset_t> DATASETS{{"full", MNIST}, {"small", MNIST_SMALL}};
 const converter_t<layer_pattern_t> PATTERNS{{"halve", HALVE}, {"same", SAME}};
 const converter_t<optimizer_t> OPTIMIZERS{{"adam", ADAM}, {"adamw", ADAMW}};
 
@@ -61,14 +77,15 @@ void reset_args() {
 
 void apply_args() {
   omp_set_num_threads(OUR_THREADS);
-  printf("Using: %d threads, %s dataset, %d generations, %d population size, "
+  printf("Using: seed 42, %d threads, %s dataset, %d generations, %d population size, "
          "%d parents per generation\n",
-         OUR_THREADS, DATASETS[DATASET], NUM_GENERATIONS, POP_SIZE,
+         OUR_THREADS, DATASETS[DATASET].data(), NUM_GENERATIONS, POP_SIZE,
          NUM_PARENTS);
+  srand(42);
 }
 
 void fail_arg(char *arg, int index) {
-  fprintf(stderr, "Parameter %d is invalid: %s", index, arg);
+  fprintf(stderr, "Parameter %d is invalid: %s\n", index, arg);
   exit(1);
 }
 
@@ -85,8 +102,7 @@ void read_args(int argc, char *argv[]) {
   reset_args();
   char **arg = argv;
   char **end = argv + argc;
-  int i = 1;
-
+  int i = 0;
   next_arg(i, argc); // ignore file name
   if (strlen(*arg) > 0 && (DATASETS.contains(*arg))) DATASET = DATASETS[*arg];
   else fail_arg(*arg, i);

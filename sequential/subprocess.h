@@ -400,8 +400,11 @@ typedef size_t subprocess_size_t;
 #pragma clang diagnostic ignored "-Wpadded"
 #endif
 struct subprocess_s {
+  int stdin_fd;
   FILE *stdin_file;
+  int stdout_fd;
   FILE *stdout_file;
+  int stderr_fd;
   FILE *stderr_file;
 
 #if defined(_WIN32)
@@ -899,11 +902,13 @@ int subprocess_create_ex(const char *const commandLine[], int options,
   close(stdinfd[0]);
   // Store the stdin write end
   out_process->stdin_file = fdopen(stdinfd[1], "wb");
+  out_process->stdin_fd = stdinfd[1];
 
   // Close the stdout write end
   close(stdoutfd[1]);
   // Store the stdout read end
   out_process->stdout_file = fdopen(stdoutfd[0], "rb");
+  out_process->stdout_fd = stdoutfd[0];
 
   if (subprocess_option_combined_stdout_stderr ==
       (options & subprocess_option_combined_stdout_stderr)) {
@@ -913,6 +918,7 @@ int subprocess_create_ex(const char *const commandLine[], int options,
     close(stderrfd[1]);
     // Store the stderr read end
     out_process->stderr_file = fdopen(stderrfd[0], "rb");
+    out_process->stderr_fd = stderrfd[0];
   }
 
   // Store the child's pid

@@ -16,37 +16,17 @@
 #include <unistd.h>
 
 #include "args.hpp"
+#include "base.hpp"
+#include "python_proc.h"
 #include "rand.hpp"
 #include "types.hpp"
 
-const char EXIT[] = "exit\n";
-
-typedef enum {
-  UNKNOWN,
-  SUCCESS,
-  TERMINATE,
-  DESTROY,
-  READ_FILDES,
-  READ_STD,
-  CREATE,
-  WRITE_FILDES,
-  READ_FILDES_TIMEOUT
-} error_code_t;
-
-#define TIMEOUT_MS (5 * 60 * 1000) // 2m
+#define TIMEOUT_MS (1 * 60 * 1000) // 5m
 #define SMALL_TIMEOUT_MS (500)
-
-struct subprocess_s global_agent;
-bool agent_running = false;
 
 static char io_buffer[4096];
 static ssize_t io_buffer_len = 0;
 static ssize_t io_buffer_pos = 0;
-
-//--------------- ERROR ---------------
-
-void fatal(error_code_t err, const char *where);
-void cleanup(error_code_t err, const char *where);
 
 //--------------- PROCESS ---------------
 
@@ -58,7 +38,6 @@ int read_line_timeout(int fd, char *buffer, size_t max_size);
 
 void send_evaluation_request(int id, Individual ind);
 
-void generate_population(Individual *population, int i);
 void selection(Individual *population, double *fitness_scores, int pop_size,
                Individual *parents, int i);
 void crossover(const Individual *parents, int num_parents,
@@ -68,18 +47,12 @@ void mutation(Individual *offspring, int i);
 int main(int argc, char *argv[]) {
   read_args(argc, argv);
   apply_args();
-
-  srand((unsigned int)time(NULL));
-
   int offspring_size = POP_SIZE - NUM_PARENTS;
-
-  Individual *population = (Individual *)malloc(POP_SIZE * sizeof(Individual));
-  Individual *next_population =
-      (Individual *)malloc(POP_SIZE * sizeof(Individual));
-  Individual *parents = (Individual *)malloc(NUM_PARENTS * sizeof(Individual));
-  Individual *offspring =
-      (Individual *)malloc(offspring_size * sizeof(Individual));
-  double *fitness_scores = (double *)malloc(POP_SIZE * sizeof(double));
+  Individual *population = alloc_pop();
+  Individual *parents = alloc_parents();
+  Individual *offspring = alloc_offspring();
+  Individual *next_population = alloc_pop();
+  double *fitness_scores = alloc_scores();
 
   IndividualAccuracy best_individual_accuracy = {.accuracy = -INFINITY};
 
@@ -91,7 +64,7 @@ int main(int argc, char *argv[]) {
 #pragma omp master
     {
       for (int i = 0; i < POP_SIZE; i++) {
-        generate_population(population, i);
+        generate_individual(population[i]);
       }
       for (int generation = 0; generation < NUM_GENERATIONS; generation++) {
         printf("\nGeneration %2d/%2d\n", generation + 1, NUM_GENERATIONS);
@@ -105,8 +78,9 @@ int main(int argc, char *argv[]) {
 
         for (int i = 0; i < POP_SIZE; i++) {
           char *task_buffer = (char *)malloc(256);
-          if (read_line_timeout(global_agent.stdout_fd, task_buffer, 256) ==
-              1) {
+          int e;
+          if ((e = read_line_timeout(global_agent.stdout_fd, task_buffer,
+                                     256)) == 1) {
 #pragma omp task firstprivate(task_buffer) shared(fitness_scores)
             {
               int response_id;
@@ -118,13 +92,13 @@ int main(int argc, char *argv[]) {
                 printf(".");
                 fflush(stdout);
               } else {
-                fatal(UNKNOWN, "sscanf");
+                fatal(error_code_t::UNKNOWN, "sscanf");
               }
               free(task_buffer);
             }
           } else {
             free(task_buffer);
-            fatal(READ_FILDES, "Agent failed to respond or pipe broke.");
+            fatal(error_code_t::READ_FILDES, "Agent failed to respond or pipe broke.");
           }
         }
 
@@ -133,7 +107,7 @@ int main(int argc, char *argv[]) {
         double max_fitness = -INFINITY;
         double sum_fitness = 0.0;
         for (int i = 0; i < POP_SIZE; i++) {
-          printf("%2d/%2d.acc=%.17f\n", i + 1, POP_SIZE, fitness_scores[i]);
+          report(population, i, fitness_scores[i]);
           double score = fitness_scores[i];
           sum_fitness += score;
           if (score > max_fitness)
@@ -174,17 +148,8 @@ int main(int argc, char *argv[]) {
       }
     }
   }
-  cleanup(SUCCESS, "success");
-
-  printf("\n=== Optimization Complete ===\n");
-  printf("Best Accuracy: %lg\n", best_individual_accuracy.accuracy);
-  printf(
-      "Best Hyperparameters: Layers=%d, Neurons=%d, LR=%lf, Batch=%d, Act=%d\n",
-      best_individual_accuracy.individual.layers,
-      best_individual_accuracy.individual.neurons,
-      best_individual_accuracy.individual.learning_rate,
-      best_individual_accuracy.individual.batch_size,
-      best_individual_accuracy.individual.activation);
+  cleanup(error_code_t::SUCCESS, "success");
+  goodbye(best_individual_accuracy);
 
   free(population);
   free(parents);
@@ -197,23 +162,16 @@ int main(int argc, char *argv[]) {
 
 void send_evaluation_request(int id, Individual ind) {
   if (!agent_running)
-    fatal(UNKNOWN, "Agent is dead.");
+    fatal(error_code_t::UNKNOWN, "Agent is dead.");
 
   char buffer[256];
-  int size = snprintf(buffer, sizeof(buffer), "%d %d %d %.17lg %d %d\n", id,
-                      ind.layers, ind.neurons, ind.learning_rate,
-                      ind.batch_size, ind.activation);
+  int size = snprintf(buffer, sizeof(buffer), python_printf_string,
+                      python_args_in_order(id, ind));
   if (size <= 0)
-    fatal(UNKNOWN, "String format failed");
+    fatal(error_code_t::UNKNOWN, "String format failed");
 
-    // Prevent multiple threads from writing to the pipe at the exact same
-    // microsecond
-#pragma omp critical(pipe_write)
-  {
-    if (write(global_agent.stdin_fd, buffer, size) <= 0) {
-      fatal(WRITE_FILDES, "send_evaluation_request");
-    }
-  }
+  if (write(global_agent.stdin_fd, buffer, size) <= 0)
+    fatal(error_code_t::WRITE_FILDES, "send_evaluation_request");
 }
 
 bool wait_for_it(int fd, int timeout) {
@@ -259,151 +217,21 @@ int read_line_timeout(int fd, char *buffer, size_t max_size) {
   return true;
 }
 
-//--------------- GA ---------------
-
-void selection(Individual *population, double *fitness_scores, int pop_size,
-               Individual *parents, int i) {
-  int idx1 = random_randint(0, pop_size - 1);
-  int idx2 = random_randint(0, pop_size - 1);
-
-  if (pop_size <= 1)
-    fatal(UNKNOWN, "selection");
-
-  while (idx1 == idx2)
-    idx2 = random_randint(0, pop_size - 1);
-
-  if (fitness_scores[idx1] > fitness_scores[idx2]) {
-    parents[i] = population[idx1];
-  } else {
-    parents[i] = population[idx2];
-  }
-}
-
-void crossover(const Individual *parents, int num_parents,
-               Individual *offspring, int i) {
-  int p1_idx = random_randint(0, num_parents - 1);
-  int p2_idx = random_randint(0, num_parents - 1);
-
-  while (p1_idx == p2_idx && num_parents > 1)
-    p2_idx = random_randint(0, num_parents - 1);
-
-  const Individual *p1 = parents + p1_idx;
-  const Individual *p2 = parents + p2_idx;
-  Individual child;
-
-  int cp = random_randint(1, 4); // no clones
-  child.layers = (cp > 0) ? p1->layers : p2->layers;
-  child.neurons = (cp > 1) ? p1->neurons : p2->neurons;
-  child.learning_rate = (cp > 2) ? p1->learning_rate : p2->learning_rate;
-  child.batch_size = (cp > 3) ? p1->batch_size : p2->batch_size;
-  child.activation = (cp > 4) ? p1->activation : p2->activation;
-
-  offspring[i] = child;
-}
-
-void generate_population(Individual *population, int i) {
-  population[i].layers = random_layers();
-  population[i].neurons = random_neurons(population[i].layers);
-  population[i].learning_rate = random_learning_rate();
-  population[i].batch_size = random_batch_size();
-  population[i].activation = random_activation();
-}
-
-void mutation(Individual *offspring, int i) {
-  if ((double)rand() / RAND_MAX < 0.1) {
-    Individual *ind = offspring + i;
-    int mutation_index = random_randint(0, 4);
-    switch (mutation_index) {
-    case 0:
-      ind->layers = random_layers();
-      ind->neurons = clamp_neurons(ind->neurons, ind->layers);
-      break;
-    case 1:
-      ind->neurons = random_neurons(ind->layers);
-      break;
-    case 2:
-      ind->learning_rate = random_learning_rate();
-      break;
-    case 3:
-      ind->batch_size = random_batch_size();
-      break;
-    case 4:
-      ind->activation = random_activation();
-      break;
-    }
-  }
-}
-
 //--------------- SUBPROC ---------------
 
 void prepare_subprocess() {
   char n_workers[4];
   snprintf(n_workers, sizeof(n_workers), "%d", OUR_THREADS);
-  const char *command_line[] = {"python3", "-u",      "py/agent.py",
-                                "true", DATASETS[DATASET].data(),    n_workers, NULL};
+  const char *command_line[] = python_command_line("true", n_workers);
   if (subprocess_create(command_line,
                         subprocess_option_inherit_environment |
                             subprocess_option_search_user_path |
                             subprocess_option_enable_async,
                         &global_agent)) {
-    fatal(CREATE, "Failed to spawn Python agent");
+    fatal(error_code_t::CREATE, "Failed to spawn Python agent");
   }
   // int fd = global_agent.stdout_fd;
   // int flags = fcntl(fd, F_GETFL, 0);       // Get current flags
   // fcntl(fd, F_SETFL, flags | O_NONBLOCK); // Add non-blocking flag
   agent_running = true;
 }
-
-int subprocess_join_timeout(pid_t child_pid, int timeout_ms, int *exit_status) {
-  int status;
-  int elapsed_ms = 0;
-  const int sleep_interval_ms = 10;
-
-  while (elapsed_ms < timeout_ms) {
-    pid_t wpid = waitpid(child_pid, &status, WNOHANG);
-
-    if (wpid == child_pid) {
-      if (exit_status)
-        *exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-      return 1;
-    } else if (wpid == -1 && errno == ECHILD) {
-      return -1;
-    }
-
-    usleep(sleep_interval_ms * 1000);
-    elapsed_ms += sleep_interval_ms;
-  }
-  return 0;
-}
-
-void kill_child() {
-  if (subprocess_terminate(&global_agent) != 0) {
-    fprintf(stderr, "Failed to terminate subprocess.\n");
-  }
-}
-
-void clean_process(error_code_t err, const char *where) {
-  if (!agent_running)
-    return;
-
-  if (err != SUCCESS && err != READ_FILDES_TIMEOUT) {
-    fprintf(stderr, "Fatal Error [%d] at %s\n", err, where);
-  }
-
-  int result;
-  if (write(global_agent.stdin_fd, EXIT, strlen(EXIT)) < 1) {
-    kill_child();
-  } else if (!subprocess_join_timeout(global_agent.child, 500, &result)) {
-    kill_child();
-  }
-
-  subprocess_destroy(&global_agent);
-  agent_running = false;
-}
-
-void fatal(error_code_t err, const char *where) {
-  cleanup(err, where);
-  exit(err);
-}
-
-void cleanup(error_code_t err, const char *where) { clean_process(err, where); }
