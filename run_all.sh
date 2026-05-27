@@ -47,7 +47,7 @@ tail -n +2 "$CSV_IN_TEL" | while IFS=, read -r -a values; do
     
     echo "Running $exp_num: ${cmd[*]}"
     #Intel VTune Profiler
-    if ! vtune -collect $VTUNE_ANALYSIS -knob sampling-mode=sw -result-dir "$RES_DIR" -- "${cmd[@]}" 2>&1 | tee "$VTUNE_LOG"; then
+    if ! vtune -collect $VTUNE_ANALYSIS -knob sampling-mode=hw -result-dir "$RES_DIR" -- "${cmd[@]}" 2>&1 | tee "$VTUNE_LOG"; then
         exit 1
     fi
 
