@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=ga
 #SBATCH --partition=hype
-#SBATCH --nodes=1
+#SBATCH --nodelist=hype[1-2]
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=40
 #SBATCH --time=2:00:00
