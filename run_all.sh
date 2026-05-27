@@ -49,7 +49,7 @@ tail -n +2 "$CSV_IN" | while IFS=, read -r -a values; do
     # feioso
     { time { "${cmd[@]}"; echo; } 2>&1; } 2>&1 | tee "$EXEC_LOG"
     TIME_ELAPSED=$(tail -n 1 "$EXEC_LOG")
-    echo "$(IFS=','; echo "${value[*]}"),$TIME_ELAPSED" >> "$CSV_OUT"
+    echo "$(IFS=','; echo "${values[*]}"),$TIME_ELAPSED" >> "$CSV_OUT"
 
     ((exp_num++))
 done

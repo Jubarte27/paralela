@@ -65,6 +65,7 @@ int main(int argc, char *argv[]) {
   {
 #pragma omp master
     {
+#pragma omp parallel for schedule(dynamic)
       for (int i = 0; i < POP_SIZE; i++) {
         generate_individual(population[i]);
       }
