@@ -8,5 +8,4 @@
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 
-cp -r "$SCRATCH/paralela" "$HOME/ga_job/"
-
+cp -r "$SCRATCH/paralela/" "$HOME/ga_job/"
