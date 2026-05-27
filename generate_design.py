@@ -47,21 +47,21 @@ if __name__ == "__main__":
     pars = {
         "VERSIONS":["-p", "-s"], # parallel, sequential
         "DATASET":["small", "full"],
-        "THREADS":[4, 16, -1],
-        "NUM_GENERATIONS":[10, 20],
-        "POP_SIZE":[16, 32],
+        "THREADS":[4, 20],
+        "NUM_GENERATIONS":[5, 10],
+        "POP_SIZE":[10, 20],
         "NUM_PARENTS":[3, 5],
     }
     
     generate_lhs_to_csv(
         param_dict=pars, 
-        num_samples=25, # ~ 1/4 
+        num_samples=6, # ~ 10%
         output_file="doe.csv"
     )
     
     generate_lhs_to_csv(
         param_dict=pars, 
-        num_samples=6, # ~ 1/17
+        num_samples=2, # ~ 3%
         output_file="doe_intel.csv"
     )
     

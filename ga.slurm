@@ -12,6 +12,9 @@
 set -euo pipefail
 
 cd "$SCRATCH"
+
+if [ -d "paralela" ]; then rm -fr paralela; fi
+
 git clone  --recurse-submodules https://github.com/Jubarte27/paralela
 cd paralela
 
