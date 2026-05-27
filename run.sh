@@ -21,7 +21,7 @@ while true; do
             shift
             ;;
         -d)
-            FLAGS=(-g -Og) #debug
+            FLAGS=(-g -O3) #debug
             shift
             ;;
         *)

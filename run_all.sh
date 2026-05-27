@@ -17,6 +17,8 @@ if [[ ! -f "$CSV_IN" ]]; then
     exit 1
 fi
 
+ls /home/intel/oneapi/vtune/
+
 if [ -d "/home/intel/oneapi/vtune/2021.1.1/" ]; then
 	source "/home/intel/oneapi/vtune/2021.1.1/vtune-vars.sh"
 elif [ -d "/opt/intel/oneapi/vtune/latest/" ]; then
