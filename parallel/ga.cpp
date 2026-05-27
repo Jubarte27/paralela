@@ -15,6 +15,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#define VERSION_NAME "Parallel"
+
 #include "args.hpp"
 #include "base.hpp"
 #include "python_proc.h"

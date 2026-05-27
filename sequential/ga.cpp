@@ -3,8 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
 #include <subprocess.h>
+
+#define VERSION_NAME "Sequential"
 
 #include "args.hpp"
 #include "base.hpp"

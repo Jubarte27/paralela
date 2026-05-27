@@ -6,7 +6,7 @@ python3 -m venv "$HERE/.venv"
 source "$HERE/.venv/bin/activate"
 
 pip install --upgrade pip
-pip install tensorflow-cpu scipy
+pip install tensorflow-cpu scipy pandas numpy
 
 
 # sudo sysctl -w kernel.yama.ptrace_scope=0

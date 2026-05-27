@@ -1,0 +1,6 @@
+NUM_GENERATIONS,POP_SIZE,NUM_PARENTS,VERSIONS,THREADS,INPUT_SIZES
+20,16,5,-p,16,full
+10,32,5,-s,4,small
+10,32,5,-s,-1,full
+20,16,3,-p,4,small
+20,16,3,-p,16,small

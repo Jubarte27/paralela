@@ -62,6 +62,10 @@ const converter_t<optimizer_t> OPTIMIZERS{{"adam", ADAM}, {"adamw", ADAMW}};
 int OUR_THREADS;
 dataset_t DATASET;
 
+#ifndef VERSION_NAME
+#define VERSION_NAME "GENERIC"
+#endif
+
 //for ga
 int NUM_GENERATIONS;
 int POP_SIZE;
@@ -77,7 +81,7 @@ void reset_args() {
 
 void apply_args() {
   omp_set_num_threads(OUR_THREADS);
-  printf("Using: seed 42, %d threads, %s dataset, %d generations, %d population size, "
+  printf("Using: " VERSION_NAME " version, seed 42, %d threads, %s dataset, %d generations, %d population size, "
          "%d parents per generation\n",
          OUR_THREADS, DATASETS[DATASET].data(), NUM_GENERATIONS, POP_SIZE,
          NUM_PARENTS);
