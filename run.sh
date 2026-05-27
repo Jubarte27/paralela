@@ -37,7 +37,7 @@ fi
 
 
 
-if ! g++ --std="c++23" "${FLAGS[@]}" -rdynamic -fopenmp "$TARGET/ga.cpp" -I"$TARGET" -I"$COMMON" -Ipreprocessor/include -lm -o "$TARGET/ga"; then
+if ! g++ --std="c++20" "${FLAGS[@]}" -rdynamic -fopenmp "$TARGET/ga.cpp" -I"$TARGET" -I"$COMMON" -Ipreprocessor/include -lm -o "$TARGET/ga"; then
     echo "Failed to compile ga.cpp"
     exit 1
 fi
