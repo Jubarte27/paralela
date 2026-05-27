@@ -112,7 +112,7 @@ void dump_fd_to_stdout(int fd) {
 
 
 void fatal(error_code_t err, const char *where) {
-  dump_fd_to_stdout(global_agent.stderr_fd);
+  if (global_agent.stderr_file != NULL) dump_fd_to_stdout(global_agent.stderr_fd);
   cleanup(err, where);
   exit(static_cast<int>(err));
 }

@@ -5,7 +5,8 @@
             "includePath": [
                 "${workspaceFolder}/parallel",
                 "${workspaceFolder}/sequential",
-                "${workspaceFolder}/common"
+                "${workspaceFolder}/common",
+                "${workspaceFolder}/preprocessor/include"
             ],
             "defines": [
                 "_POSIX_C_SOURCE=202405L"

@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
   // Start Python ONCE ----
   const char *command_line[] = python_command_line("false", "-1");
   struct subprocess_s subprocess;
-  if (!subprocess_create(command_line,
+  if (subprocess_create(command_line,
                          subprocess_option_inherit_environment |
                              subprocess_option_search_user_path,
                          &subprocess))
