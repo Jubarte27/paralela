@@ -7,7 +7,7 @@ mkdir -p "$BASE_DIR"
 BASE_DIR="$(realpath $BASE_DIR)"
 
 EXEC="$HERE/run.sh"
-VTUNE_ANALYSIS="hpc-performance" # performance-snapshot, hotspots, hpc-performance
+VTUNE_ANALYSIS="hotspots" # performance-snapshot, hotspots, hpc-performance
 CSV_IN="$HERE/doe.csv"
 CSV_IN_TEL="$HERE/doe_intel.csv"
 CSV_OUT="$BASE_DIR/out.csv"
@@ -45,9 +45,11 @@ tail -n +2 "$CSV_IN" | while IFS=, read -r -a values; do
 
     echo "Running $exp_num: ${cmd[*]}"
     # Just time
-    /usr/bin/time -f "%e" "${cmd[@]}" 2>&1 | tee "$EXEC_LOG"
+    TIMEFORMAT="%R"
+    # feioso
+    { time { "${cmd[@]}"; echo; } 2>&1; } 2>&1 | tee "$EXEC_LOG"
     TIME_ELAPSED=$(tail -n 1 "$EXEC_LOG")
-    echo "$(IFS=','; echo "${value[*]}"),$TIME_ELAPSED" >> $CSV_OUT
+    echo "$(IFS=','; echo "${value[*]}"),$TIME_ELAPSED" >> "$CSV_OUT"
 
     ((exp_num++))
 done
