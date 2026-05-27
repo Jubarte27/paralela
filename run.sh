@@ -9,6 +9,7 @@ VENV="$HERE/.venv"
 TARGET=$PARALLEL
 
 ## da pra melhorar isso aqui
+FLAGS=(-O3)
 while true; do
     case "$1" in
         -s)
@@ -17,6 +18,10 @@ while true; do
             ;;
         -p)
             TARGET=$PARALLEL
+            shift
+            ;;
+        -d)
+            FLAGS=(-g -Og) #debug
             shift
             ;;
         *)
@@ -30,7 +35,9 @@ if [ "$#" -lt "5" ]; then
     exit 1
 fi
 
-if ! g++ --std="c++23" -g -rdynamic -O3 -fopenmp "$TARGET/ga.cpp" -I"$TARGET" -I"$COMMON" -lm -o "$TARGET/ga"; then
+
+
+if ! g++ --std="c++23" "${FLAGS[@]}" -rdynamic -fopenmp "$TARGET/ga.cpp" -I"$TARGET" -I"$COMMON" -lm -o "$TARGET/ga"; then
     echo "Failed to compile ga.cpp"
     exit 1
 fi

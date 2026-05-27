@@ -4,11 +4,13 @@ HERE=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 BASE_DIR="ga"
 mkdir -p "$BASE_DIR"
 
+BASE_DIR="$(realpath $BASE_DIR)"
+
 EXEC="$HERE/run.sh"
-VTUNE_ANALYSIS="hotspots" # performance-snapshot, hotspots, hpc-performance
-CSV_IN="doe.csv"
-CSV_OUT="out.csv"
-CSV_IN_TEL="doe_intel.csv"
+VTUNE_ANALYSIS="hpc-performance" # performance-snapshot, hotspots, hpc-performance
+CSV_IN="$HERE/doe.csv"
+CSV_IN_TEL="$HERE/doe_intel.csv"
+CSV_OUT="$BASE_DIR/out.csv"
 
 if [[ ! -f "$CSV_IN" ]]; then
     echo "Error: Cannot find '$CSV_FILE'"
@@ -52,7 +54,7 @@ done
 
 exp_num=1
 tail -n +2 "$CSV_IN_TEL" | while IFS=, read -r -a values; do
-    cmd=("$EXEC")
+    cmd=("$EXEC" "-d")
     for value in "${values[@]}"; do
         # Maldito Windows
         param_value=$(echo "$value" | tr -d '\r')

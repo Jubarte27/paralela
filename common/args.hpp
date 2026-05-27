@@ -100,8 +100,14 @@ int read_positive_int(char *arg, int index) {
   return number_read;
 }
 
-#define next_arg(i, argc) do { if ((i) >= (argc)) return; (i)++; (arg)++; } while (0)
-#define read_i(dest, i, argc) do { if (strlen(*(arg)) > 0) (dest) = read_positive_int(*(arg), (i)); } while (0)
+int read_int(char *arg, int index) {
+  int number_read = (int)strtol(arg, NULL, 0);
+  return number_read;
+}
+
+#define next_arg(i, argc) if ((i) >= (argc)) return; (i)++; (arg)++;
+#define read_u(dest, i, argc) if (strlen(*(arg)) > 0) (dest) = read_positive_int(*(arg), (i));
+#define read_i(dest, i, argc) if (strlen(*(arg)) > 0) (dest) = read_int(*(arg), (i));
 void read_args(int argc, char *argv[]) {
   reset_args();
   char **arg = argv;
@@ -116,13 +122,13 @@ void read_args(int argc, char *argv[]) {
   if (OUR_THREADS > omp_get_num_procs()) fail_arg(*arg, i);
 
   next_arg(i, argc);
-  read_i(NUM_GENERATIONS, i, argc);
+  read_u(NUM_GENERATIONS, i, argc);
 
   next_arg(i, argc);
-  read_i(POP_SIZE, i, argc);
+  read_u(POP_SIZE, i, argc);
 
   next_arg(i, argc);
-  read_i(NUM_PARENTS, i, argc);
+  read_u(NUM_PARENTS, i, argc);
   if (NUM_PARENTS > POP_SIZE) fail_arg(*arg, i);
 }
 

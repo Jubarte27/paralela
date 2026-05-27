@@ -45,12 +45,12 @@ def generate_lhs_to_csv(param_dict: dict[str, tuple | list], num_samples=10, out
 
 if __name__ == "__main__":
     pars = {
+        "VERSIONS":["-p", "-s"], # parallel, sequential
+        "DATASET":["small", "full"],
+        "THREADS":[4, 16, -1],
         "NUM_GENERATIONS":[10, 20],
         "POP_SIZE":[16, 32],
         "NUM_PARENTS":[3, 5],
-        "VERSIONS":["-p", "-s"], # parallel, sequential
-        "THREADS":[4, 16, -1],
-        "INPUT_SIZES":["small", "full"],
     }
     
     generate_lhs_to_csv(
