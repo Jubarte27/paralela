@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=40
-#SBATCH --time=2:00:00
+#SBATCH --time=3:00:00
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 
@@ -21,7 +21,7 @@ cd paralela
 ./init.sh
 source .venv/bin/activate
 python3 generate_design.py
-srun ./run_all.sh -t
+srun ./run_all.sh -b
 
-cp -r "$SCRATCH/paralela" "$HOME/ga_job_threads/"
+cp -r "$SCRATCH/paralela/ga" "$HOME/ga_job_base/"
 
