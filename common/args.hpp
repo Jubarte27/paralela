@@ -119,7 +119,11 @@ void read_args(int argc, char *argv[]) {
 
   next_arg(i, argc);
   read_i(OUR_THREADS, i, argc);
-  if (OUR_THREADS > omp_get_num_procs()) fail_arg(*arg, i);
+  if (OUR_THREADS > omp_get_num_procs()) {
+    fprintf(stderr, "requested %d but we only have %d. using %d\n", OUR_THREADS, omp_get_num_procs(), omp_get_num_procs());
+
+    OUR_THREADS = omp_get_num_procs();
+  }
 
   next_arg(i, argc);
   read_u(NUM_GENERATIONS, i, argc);

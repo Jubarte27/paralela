@@ -21,7 +21,7 @@ cd paralela
 ./init.sh
 source .venv/bin/activate
 python3 generate_design.py
-srun ./run_all.sh
+srun ./run_all.sh -t
 
-cp -r "$SCRATCH/paralela" "$HOME/ga_job/"
+cp -r "$SCRATCH/paralela" "$HOME/ga_job_threads/"
 

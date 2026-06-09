@@ -1,0 +1,11 @@
+VERSIONS,DATASET,THREADS,NUM_GENERATIONS,POP_SIZE,NUM_PARENTS
+-p,small,16,5,16,5
+-p,small,4,5,16,5
+-p,small,2,5,16,5
+-p,small,1,5,16,5
+-p,small,40,5,40,5
+-p,small,16,5,40,5
+-p,small,4,5,40,5
+-p,small,2,5,40,5
+-p,small,1,5,40,5
+-s,small,1,5,16,5

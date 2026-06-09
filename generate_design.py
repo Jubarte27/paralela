@@ -2,6 +2,7 @@ from typing import TypeVar
 
 import pandas as pd
 import numpy as np
+import random
 from scipy.stats import qmc
 
 # maybe continuous, maybe not, categorical even
@@ -44,14 +45,38 @@ def generate_lhs_to_csv(param_dict: dict[str, tuple | list], num_samples=10, out
     return df
 
 if __name__ == "__main__":
+    versions = np.array(["-p", "-s"], dtype=np.str_) # parallel, sequential
+    threads = np.array([1, 2, 4, 16, 40], dtype=np.int32)
+    total = len(versions) * len(threads)
+    rng = np.random.default_rng(42)
+
     pars = {
-        "VERSIONS":["-p", "-s"], # parallel, sequential
+        "VERSIONS":versions.tolist(),
         "DATASET":["small", "full"],
         "THREADS":[4, 20],
         "NUM_GENERATIONS":[5, 10],
         "POP_SIZE":[10, 20],
         "NUM_PARENTS":[3, 5],
     }
+
+
+    pops = [16, 40]
+    ths = [40, 16, 4, 2, 1]
+    threads = [t for p in pops for t in ths if t <= p]
+    population = [p for p in pops for t in ths if t <= p]
+    total = len(threads) + 1
+
+
+    df = pd.DataFrame(data={
+        "VERSIONS":["-p" for _ in threads] + ["-s"],
+        "DATASET":["small"] * total,
+        "THREADS":threads + [1],
+        "NUM_GENERATIONS":[5] * total,
+        "POP_SIZE":population + [16],
+        "NUM_PARENTS":[5] * total,
+    })
+    df.to_csv("doe_threads.csv", index=False)
+    print(df)
     
     generate_lhs_to_csv(
         param_dict=pars, 
