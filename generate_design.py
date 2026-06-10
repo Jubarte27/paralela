@@ -44,30 +44,17 @@ def generate_lhs_to_csv(param_dict: dict[str, tuple | list], num_samples=10, out
     print(df)
     return df
 
-if __name__ == "__main__":
+def generate_threads_csv(output_file):
     versions = np.array(["-p", "-s"], dtype=np.str_) # parallel, sequential
     threads = np.array([1, 2, 4, 16, 40], dtype=np.int32)
     total = len(versions) * len(threads)
-    rng = np.random.default_rng(42)
-
-    pars = {
-        "VERSIONS":versions.tolist(),
-        "DATASET":["small", "full"],
-        "THREADS":[4, 20],
-        "NUM_GENERATIONS":[5, 10],
-        "POP_SIZE":[10, 20],
-        "NUM_PARENTS":[3, 5],
-    }
-
-
     pops = [16, 40]
     ths = [40, 16, 4, 2, 1]
     threads = [t for p in pops for t in ths if t <= p]
     population = [p for p in pops for t in ths if t <= p]
     total = len(threads) + 1
 
-
-    df = pd.DataFrame(data={
+    threads = pd.DataFrame(data={
         "VERSIONS":["-p" for _ in threads] + ["-s"],
         "DATASET":["small"] * total,
         "THREADS":threads + [1],
@@ -75,18 +62,46 @@ if __name__ == "__main__":
         "POP_SIZE":population + [16],
         "NUM_PARENTS":[5] * total,
     })
-    df.to_csv("doe_threads.csv", index=False)
-    print(df)
+    threads.to_csv(output_file, index=False)
+    print(f"Generated {len(threads)} samples to '{output_file}'")
+    print(threads)
+
+if __name__ == "__main__":
+    pars = {
+        "VERSIONS":["-p", "-s"],
+        "DATASET":["small", "full"],
+        "THREADS":[4, 20],
+        "NUM_GENERATIONS":[5, 10],
+        "POP_SIZE":[10, 20],
+        "NUM_PARENTS":[3, 5],
+    }
     
     generate_lhs_to_csv(
         param_dict=pars, 
         num_samples=6, # ~ 10%
         output_file="doe.csv"
     )
+
+    generate_threads_csv("doe_threads.csv")
     
     generate_lhs_to_csv(
         param_dict=pars, 
         num_samples=2, # ~ 3%
         output_file="doe_intel.csv"
+    )
+    
+    parallel_pars = {
+        "VERSIONS":["-p"],
+        "DATASET":["small", "full"],
+        "THREADS":[4, 40],
+        "NUM_GENERATIONS":[5, 10],
+        "POP_SIZE":[10, 40],
+        "NUM_PARENTS":[3, 5],
+    }
+
+    generate_lhs_to_csv(
+        param_dict=parallel_pars, 
+        num_samples=20, # ~ 50%
+        output_file="doe_base.csv"
     )
     
