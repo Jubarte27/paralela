@@ -102,6 +102,6 @@ if __name__ == "__main__":
     generate_lhs_to_csv(
         param_dict=parallel_pars, 
         num_samples=20, # ~ 50%
-        output_file="doe_base.csv"
+        output_file="doe.csv"
     )
     
