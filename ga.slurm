@@ -23,5 +23,5 @@ source .venv/bin/activate
 python3 generate_design.py
 srun ./run_all.sh -b
 
-cp -r "$SCRATCH/paralela/ga" "$HOME/ga_job_base/"
+cp -r "$SCRATCH/paralela/ga" "$HOME/ga_job_parallel/"
 
