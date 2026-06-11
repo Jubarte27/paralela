@@ -11,3 +11,6 @@ https://github.com/Jubarte27/paralela/blob/main/sequential/ga.cpp
 
 ## Paralelo
 https://github.com/Jubarte27/paralela/blob/main/parallel/ga.cpp
+
+## Speedup
+https://colab.research.google.com/drive/1ld0xUa9G6FTGMVGfzFI123DcUfzdcWKF?usp=sharing
